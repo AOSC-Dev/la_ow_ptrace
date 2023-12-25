@@ -8,6 +8,7 @@
 #include <string.h>
 #include <sys/mman.h>
 #include <sys/ptrace.h>
+#include <sys/stat.h>
 #include <sys/uio.h>
 #include <sys/user.h>
 #include <sys/wait.h>
@@ -50,11 +51,49 @@ long int ptrace_syscall(int child_pid, uint64_t syscall_addr, uint64_t a7,
   // read register back to get result
   ptrace(PTRACE_GETREGSET, child_pid, NT_PRSTATUS, &iovec);
   long int result = temp_regs.regs[4];
+  fprintf(stderr,
+          "Calling syscall_%d(%lx, %lx, %lx, %lx, %lx, %lx, %lx) = %lx\n", a7,
+          a0, a1, a2, a3, a4, a5, a6, result);
 
   // restore registers
   iovec.iov_base = &regs;
   ptrace(PTRACE_SETREGSET, child_pid, NT_PRSTATUS, &iovec);
   return result;
+}
+
+void ptrace_read(int child_pid, void *dst, uint64_t src, int length) {
+  assert((length % 8) == 0);
+  for (int i = 0; i < length; i += 8) {
+    uint64_t data = ptrace(PTRACE_PEEKDATA, child_pid, src + i, NULL);
+    memcpy(dst, &data, (length - i > 8) ? 8 : (length - i));
+  }
+}
+
+void ptrace_write(int child_pid, uint64_t dst, void *src, int length) {
+  assert((length % 8) == 0);
+  for (int i = 0; i < length; i += 8) {
+    ptrace(PTRACE_POKEDATA, child_pid, dst + i, ((uint64_t *)src)[i / 8]);
+  }
+}
+
+struct stat convert_statx_to_stat(struct statx statx) {
+  // follow glibc __cp_stat64_statx
+  struct stat stat;
+
+  // TODO
+  stat.st_dev = statx.stx_dev_minor;
+  stat.st_ino = statx.stx_ino;
+  stat.st_mode = statx.stx_mode;
+  stat.st_nlink = statx.stx_nlink;
+  stat.st_uid = statx.stx_uid;
+  stat.st_gid = statx.stx_gid;
+  stat.st_rdev = statx.stx_rdev_minor;
+  stat.st_size = statx.stx_size;
+  stat.st_blksize = statx.stx_blksize;
+  stat.st_blocks = statx.stx_blocks;
+  stat.st_atime = statx.stx_atime.tv_sec;
+  stat.st_mtime = statx.stx_mtime.tv_sec;
+  stat.st_ctime = statx.stx_ctime.tv_sec;
 }
 
 int main(int argc, char *argv[]) {
@@ -108,8 +147,11 @@ int main(int argc, char *argv[]) {
         // see struct user_regs_struct
         // read syscall number from register a7(r11)
         int syscall = regs.regs[11];
-        // read first argument
-        int orig_a0 = regs.orig_a0;
+        // read original arguments
+        uint64_t orig_a0 = regs.orig_a0;
+        uint64_t orig_a1 = regs.regs[5];
+        uint64_t orig_a2 = regs.regs[6];
+        uint64_t orig_a3 = regs.regs[7];
         // csr_era += 4 in kernel
         uint64_t syscall_addr = regs.csr_era - 4;
 
@@ -125,17 +167,44 @@ int main(int argc, char *argv[]) {
 
           if (!mmap_page) {
             // create page in child
-            mmap_page = ptrace_syscall(
-                child_pid, syscall_addr, __NR_mmap, 0, 16384,
-                PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0, 0);
-            fprintf(stderr, "mmap-ed %lx(%ld)\n", mmap_page, mmap_page);
+            mmap_page = ptrace_syscall(child_pid, syscall_addr, __NR_mmap, 0,
+                                       16384, PROT_READ | PROT_WRITE,
+                                       MAP_PRIVATE | MAP_ANONYMOUS, -1, 0, 0);
+            fprintf(stderr, "Create page for buffer at %lx(%ld)\n", mmap_page, mmap_page);
           }
 
           if (syscall == 79) {
-            fprintf(stderr, "Handling newfstatat\n");
+            fprintf(stderr, "Handling newfstatat(%d, %lx, %lx, %d)\n", orig_a0,
+                    orig_a1, orig_a2, orig_a3);
 
+            // implementing syscall via statx
+            // statx(fd, path,
+            // AT_STATX_SYNC_AS_STAT|AT_NO_AUTOMOUNT|AT_EMPTY_PATH,
+            // STATX_BASIC_STATS, &statx)
+            uint64_t result = ptrace_syscall(
+                child_pid, syscall_addr, __NR_statx, orig_a0, orig_a1,
+                AT_STATX_SYNC_AS_STAT | AT_NO_AUTOMOUNT,
+                STATX_BASIC_STATS, mmap_page, 0, 0);
+
+            if (result == 0) {
+              // success, update buffer from user
+              // follow glibc __cp_stat64_statx
+              struct statx statx;
+              ptrace_read(child_pid, &statx, mmap_page, sizeof(struct statx));
+
+              struct stat stat = convert_statx_to_stat(statx);
+              ptrace_write(child_pid, orig_a2, &stat, sizeof(struct stat));
+            }
+
+            // pass result to user
+            regs.regs[4] = result;
+            ptrace(PTRACE_SETREGSET, child_pid, NT_PRSTATUS, &iovec);
           } else if (syscall == 80) {
-            fprintf(stderr, "Handling fstat\n");
+            fprintf(stderr, "Handling fstat(%d, %lx)\n", orig_a0, orig_a1);
+
+            // zero path argument
+            uint64_t zero = 0;
+            ptrace_write(child_pid, mmap_page, &zero, 8);
 
             // implementing syscall via statx
             // statx(fd, "",
@@ -145,7 +214,19 @@ int main(int argc, char *argv[]) {
                 child_pid, syscall_addr, __NR_statx, orig_a0, mmap_page,
                 AT_STATX_SYNC_AS_STAT | AT_NO_AUTOMOUNT | AT_EMPTY_PATH,
                 STATX_BASIC_STATS, mmap_page, 0, 0);
-            fprintf(stderr, "statx got %lx(%ld)\n", result, result);
+
+            if (result == 0) {
+              // success, update buffer from user
+              struct statx statx;
+              ptrace_read(child_pid, &statx, mmap_page, sizeof(struct statx));
+
+              struct stat stat = convert_statx_to_stat(statx);
+              ptrace_write(child_pid, orig_a1, &stat, sizeof(struct stat));
+            }
+
+            // pass result to user
+            regs.regs[4] = result;
+            ptrace(PTRACE_SETREGSET, child_pid, NT_PRSTATUS, &iovec);
           }
         }
       } else {
