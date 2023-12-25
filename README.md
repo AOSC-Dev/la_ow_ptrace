@@ -2,7 +2,7 @@
 
 You can try [Linux kernel module for compatibility with LoongArch's old-world ABI ](https://github.com/AOSC-Dev/la_ow_syscall) for a more mature solution.
 
-This project aims to implement old-world compatibility in a pure userspace manner. The performance can be worse than the in-kernel approach, but it is easier to integrate.
+This project aims to implement old-world compatibility in a purely userspace manner. The performance can be worse than the kernel-space approach, but it is easier to integrate with distributions.
 
 ## Usage
 
