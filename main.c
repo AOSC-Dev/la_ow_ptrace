@@ -13,8 +13,16 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
-#include <linux/ptrace.h>
 #include <asm-generic/stat.h>
+#include <linux/ptrace.h>
+
+#define debug_printf(fmt, ...)                                                 \
+  do {                                                                         \
+    if (debug_print)                                                           \
+      fprintf(stderr, fmt, __VA_ARGS__);                                       \
+  } while (0);
+
+int debug_print = 0;
 
 long int ptrace_syscall(int child_pid, uint64_t syscall_addr, uint64_t a7,
                         uint64_t a0, uint64_t a1, uint64_t a2, uint64_t a3,
@@ -51,9 +59,8 @@ long int ptrace_syscall(int child_pid, uint64_t syscall_addr, uint64_t a7,
   // read register back to get result
   ptrace(PTRACE_GETREGSET, child_pid, NT_PRSTATUS, &iovec);
   long int result = temp_regs.regs[4];
-  fprintf(stderr,
-          "Calling syscall_%d(%lx, %lx, %lx, %lx, %lx, %lx, %lx) = %lx\n", a7,
-          a0, a1, a2, a3, a4, a5, a6, result);
+  debug_printf("Calling syscall_%d(%lx, %lx, %lx, %lx, %lx, %lx, %lx) = %lx\n",
+               a7, a0, a1, a2, a3, a4, a5, a6, result);
 
   // restore registers
   iovec.iov_base = &regs;
@@ -172,24 +179,24 @@ int main(int argc, char *argv[]) {
         int result = regs.regs[4];
 
         // minimal strace
-        fprintf(stderr, "Strace: syscall_%d(%d, %d, %d, %d) = %d\n", syscall,
-                orig_a0, orig_a1, orig_a2, orig_a3, result);
+        debug_printf("Strace: syscall_%d(%d, %d, %d, %d) = %d\n", syscall,
+                     orig_a0, orig_a1, orig_a2, orig_a3, result);
 
         if (result == -ENOSYS) {
-          fprintf(stderr, "Unimplemented syscall by kernel: %d\n", syscall);
+          debug_printf("Unimplemented syscall by kernel: %d\n", syscall);
 
           if (!mmap_page) {
             // create page in child
             mmap_page = ptrace_syscall(child_pid, syscall_addr, __NR_mmap, 0,
                                        16384, PROT_READ | PROT_WRITE,
                                        MAP_PRIVATE | MAP_ANONYMOUS, -1, 0, 0);
-            fprintf(stderr, "Create page for buffer at %lx(%ld)\n", mmap_page,
-                    mmap_page);
+            debug_printf("Create page for buffer at %lx(%ld)\n", mmap_page,
+                         mmap_page);
           }
 
           if (syscall == 79) {
-            fprintf(stderr, "Handling newfstatat(%d, %lx, %lx, %d)\n", orig_a0,
-                    orig_a1, orig_a2, orig_a3);
+            debug_printf("Handling newfstatat(%d, %lx, %lx, %d)\n", orig_a0,
+                         orig_a1, orig_a2, orig_a3);
 
             // implementing syscall via statx
             // statx(fd, path,
@@ -214,7 +221,7 @@ int main(int argc, char *argv[]) {
             regs.regs[4] = result;
             ptrace(PTRACE_SETREGSET, child_pid, NT_PRSTATUS, &iovec);
           } else if (syscall == 80) {
-            fprintf(stderr, "Handling fstat(%d, %lx)\n", orig_a0, orig_a1);
+            debug_printf("Handling fstat(%d, %lx)\n", orig_a0, orig_a1);
 
             // zero path argument
             uint64_t zero = 0;
@@ -244,7 +251,7 @@ int main(int argc, char *argv[]) {
           }
         }
       } else {
-        fprintf(stderr, "Unknown status %d\n", status);
+        debug_printf("Unknown status %d\n", status);
       }
     }
   }
