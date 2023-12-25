@@ -20,7 +20,7 @@
 #define debug_printf(fmt, ...)                                                 \
   do {                                                                         \
     if (debug_print)                                                           \
-      fprintf(debug_file, fmt, __VA_ARGS__);                                       \
+      fprintf(debug_file, fmt, __VA_ARGS__);                                   \
   } while (0);
 
 FILE *debug_file;
@@ -110,6 +110,36 @@ struct stat convert_statx_to_stat(struct statx statx) {
   return stat;
 }
 
+#define SYSCALL(name) [__NR_##name] = #name
+
+const char *syscall_name_table[__NR_syscalls] = {SYSCALL(brk),
+                                                 SYSCALL(close),
+                                                 SYSCALL(execve),
+                                                 SYSCALL(mmap),
+                                                 SYSCALL(openat),
+                                                 SYSCALL(read),
+                                                 SYSCALL(munmap),
+                                                 SYSCALL(set_tid_address),
+                                                 SYSCALL(set_robust_list),
+                                                 SYSCALL(ioctl),
+                                                 SYSCALL(getrandom),
+                                                 SYSCALL(read),
+                                                 SYSCALL(getdents64),
+                                                 SYSCALL(getuid),
+                                                 SYSCALL(getgid),
+                                                 SYSCALL(geteuid),
+                                                 SYSCALL(getegid),
+                                                 SYSCALL(dup3),
+                                                 SYSCALL(getpid),
+                                                 SYSCALL(getppid),
+                                                 SYSCALL(getpgid),
+                                                 SYSCALL(setpgid),
+                                                 SYSCALL(rt_sigprocmask),
+                                                 SYSCALL(fcntl),
+                                                 SYSCALL(rt_sigaction),
+                                                 SYSCALL(dup),
+                                                 SYSCALL(prlimit64)};
+
 int main(int argc, char *argv[]) {
   if (argc == 1) {
     fprintf(stderr, "%s command args...\n", argv[0]);
@@ -196,8 +226,14 @@ int main(int argc, char *argv[]) {
         int result = regs.regs[4];
 
         // minimal strace
-        debug_printf("Strace: syscall_%d(%d, %d, %d, %d) = %d\n", syscall,
-                     orig_a0, orig_a1, orig_a2, orig_a3, result);
+        if (syscall_name_table[syscall]) {
+          debug_printf("Strace: syscall_%s(%d, %d, %d, %d) = %d\n",
+                       syscall_name_table[syscall], orig_a0, orig_a1, orig_a2,
+                       orig_a3, result);
+        } else {
+          debug_printf("Strace: syscall_%d(%d, %d, %d, %d) = %d\n", syscall,
+                       orig_a0, orig_a1, orig_a2, orig_a3, result);
+        }
 
         if (result == -ENOSYS) {
           debug_printf("Unimplemented syscall by kernel: %d\n", syscall);
