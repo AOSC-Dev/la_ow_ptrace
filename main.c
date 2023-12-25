@@ -20,9 +20,10 @@
 #define debug_printf(fmt, ...)                                                 \
   do {                                                                         \
     if (debug_print)                                                           \
-      fprintf(stderr, fmt, __VA_ARGS__);                                       \
+      fprintf(debug_file, fmt, __VA_ARGS__);                                       \
   } while (0);
 
+FILE *debug_file;
 int debug_print = 0;
 
 long int ptrace_syscall(int child_pid, uint64_t syscall_addr, uint64_t a7,
@@ -115,9 +116,17 @@ int main(int argc, char *argv[]) {
     return 1;
   }
 
+  debug_file = stderr;
   char *enable_debug = getenv("LA_OW_PTRACE_DEBUG");
   if (enable_debug && strcmp(enable_debug, "1") == 0) {
+    // print to stderr
     debug_print = 1;
+  } else if (enable_debug) {
+    // save to file
+    debug_file = fopen(enable_debug, "w");
+    if (debug_file) {
+      debug_print = 1;
+    }
   }
 
   // Adapted from
@@ -208,7 +217,7 @@ int main(int argc, char *argv[]) {
 
             // implementing syscall via statx
             // statx(fd, path,
-            // AT_STATX_SYNC_AS_STAT|AT_NO_AUTOMOUNT|AT_EMPTY_PATH,
+            // AT_STATX_SYNC_AS_STAT|AT_NO_AUTOMOUNT,
             // STATX_BASIC_STATS, &statx)
             uint64_t result =
                 ptrace_syscall(child_pid, syscall_addr, __NR_statx, orig_a0,
