@@ -78,22 +78,26 @@ void ptrace_write(int child_pid, uint64_t dst, void *src, int length) {
 
 struct stat convert_statx_to_stat(struct statx statx) {
   // follow glibc __cp_stat64_statx
-  struct stat stat;
+  struct stat stat = {0};
 
-  // TODO
-  stat.st_dev = statx.stx_dev_minor;
+  stat.st_dev = ((statx.stx_dev_minor & 0xff) | (statx.stx_dev_major << 8) |
+                 ((statx.stx_dev_minor & ~0xff) << 12));
   stat.st_ino = statx.stx_ino;
   stat.st_mode = statx.stx_mode;
   stat.st_nlink = statx.stx_nlink;
   stat.st_uid = statx.stx_uid;
   stat.st_gid = statx.stx_gid;
-  stat.st_rdev = statx.stx_rdev_minor;
+  stat.st_rdev = ((statx.stx_rdev_minor & 0xff) | (statx.stx_rdev_major << 8) |
+                  ((statx.stx_rdev_minor & ~0xff) << 12));
   stat.st_size = statx.stx_size;
   stat.st_blksize = statx.stx_blksize;
   stat.st_blocks = statx.stx_blocks;
   stat.st_atime = statx.stx_atime.tv_sec;
+  stat.st_atim.tv_nsec = statx.stx_atime.tv_nsec;
   stat.st_mtime = statx.stx_mtime.tv_sec;
+  stat.st_mtim.tv_nsec = statx.stx_mtime.tv_nsec;
   stat.st_ctime = statx.stx_ctime.tv_sec;
+  stat.st_ctim.tv_nsec = statx.stx_ctime.tv_nsec;
 }
 
 int main(int argc, char *argv[]) {
@@ -170,7 +174,8 @@ int main(int argc, char *argv[]) {
             mmap_page = ptrace_syscall(child_pid, syscall_addr, __NR_mmap, 0,
                                        16384, PROT_READ | PROT_WRITE,
                                        MAP_PRIVATE | MAP_ANONYMOUS, -1, 0, 0);
-            fprintf(stderr, "Create page for buffer at %lx(%ld)\n", mmap_page, mmap_page);
+            fprintf(stderr, "Create page for buffer at %lx(%ld)\n", mmap_page,
+                    mmap_page);
           }
 
           if (syscall == 79) {
@@ -181,10 +186,10 @@ int main(int argc, char *argv[]) {
             // statx(fd, path,
             // AT_STATX_SYNC_AS_STAT|AT_NO_AUTOMOUNT|AT_EMPTY_PATH,
             // STATX_BASIC_STATS, &statx)
-            uint64_t result = ptrace_syscall(
-                child_pid, syscall_addr, __NR_statx, orig_a0, orig_a1,
-                AT_STATX_SYNC_AS_STAT | AT_NO_AUTOMOUNT,
-                STATX_BASIC_STATS, mmap_page, 0, 0);
+            uint64_t result =
+                ptrace_syscall(child_pid, syscall_addr, __NR_statx, orig_a0,
+                               orig_a1, AT_STATX_SYNC_AS_STAT | AT_NO_AUTOMOUNT,
+                               STATX_BASIC_STATS, mmap_page, 0, 0);
 
             if (result == 0) {
               // success, update buffer from user
