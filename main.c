@@ -5,6 +5,7 @@
 #include <linux/fcntl.h>
 #include <linux/stat.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/mman.h>
 #include <sys/ptrace.h>
@@ -112,6 +113,11 @@ int main(int argc, char *argv[]) {
   if (argc == 1) {
     fprintf(stderr, "%s command args...\n", argv[0]);
     return 1;
+  }
+
+  char *enable_debug = getenv("LA_OW_PTRACE_DEBUG");
+  if (enable_debug && strcmp(enable_debug, "1") == 0) {
+    debug_print = 1;
   }
 
   // Adapted from
