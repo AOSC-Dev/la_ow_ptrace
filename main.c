@@ -8,13 +8,13 @@
 #include <string.h>
 #include <sys/mman.h>
 #include <sys/ptrace.h>
-#include <sys/stat.h>
 #include <sys/uio.h>
 #include <sys/user.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
 #include <linux/ptrace.h>
+#include <asm-generic/stat.h>
 
 long int ptrace_syscall(int child_pid, uint64_t syscall_addr, uint64_t a7,
                         uint64_t a0, uint64_t a1, uint64_t a2, uint64_t a3,
@@ -65,13 +65,13 @@ void ptrace_read(int child_pid, void *dst, uint64_t src, int length) {
   assert((length % 8) == 0);
   for (int i = 0; i < length; i += 8) {
     uint64_t data = ptrace(PTRACE_PEEKDATA, child_pid, src + i, NULL);
-    memcpy(dst, &data, (length - i > 8) ? 8 : (length - i));
+    memcpy(dst + i, &data, (length - i > 8) ? 8 : (length - i));
   }
 }
 
 void ptrace_write(int child_pid, uint64_t dst, void *src, int length) {
   assert((length % 8) == 0);
-  for (int i = 0; i < length; i += 8) {
+  for (uint64_t i = 0; i < length; i += 8) {
     ptrace(PTRACE_POKEDATA, child_pid, dst + i, ((uint64_t *)src)[i / 8]);
   }
 }
@@ -93,11 +93,12 @@ struct stat convert_statx_to_stat(struct statx statx) {
   stat.st_blksize = statx.stx_blksize;
   stat.st_blocks = statx.stx_blocks;
   stat.st_atime = statx.stx_atime.tv_sec;
-  stat.st_atim.tv_nsec = statx.stx_atime.tv_nsec;
+  stat.st_atime_nsec = statx.stx_atime.tv_nsec;
   stat.st_mtime = statx.stx_mtime.tv_sec;
-  stat.st_mtim.tv_nsec = statx.stx_mtime.tv_nsec;
+  stat.st_mtime_nsec = statx.stx_mtime.tv_nsec;
   stat.st_ctime = statx.stx_ctime.tv_sec;
-  stat.st_ctim.tv_nsec = statx.stx_ctime.tv_nsec;
+  stat.st_ctime_nsec = statx.stx_ctime.tv_nsec;
+  return stat;
 }
 
 int main(int argc, char *argv[]) {
@@ -162,10 +163,18 @@ int main(int argc, char *argv[]) {
         // trace syscall exit
         ptrace(PTRACE_SYSCALL, child_pid, 0, 0);
         waitpid(child_pid, &status, 0);
+        // child process exited
+        if (WIFEXITED(status))
+          break;
 
         // get result
         ptrace(PTRACE_GETREGSET, child_pid, NT_PRSTATUS, &iovec);
         int result = regs.regs[4];
+
+        // minimal strace
+        fprintf(stderr, "Strace: syscall_%d(%d, %d, %d, %d) = %d\n", syscall,
+                orig_a0, orig_a1, orig_a2, orig_a3, result);
+
         if (result == -ENOSYS) {
           fprintf(stderr, "Unimplemented syscall by kernel: %d\n", syscall);
 
@@ -194,7 +203,7 @@ int main(int argc, char *argv[]) {
             if (result == 0) {
               // success, update buffer from user
               // follow glibc __cp_stat64_statx
-              struct statx statx;
+              struct statx statx = {0};
               ptrace_read(child_pid, &statx, mmap_page, sizeof(struct statx));
 
               struct stat stat = convert_statx_to_stat(statx);
@@ -222,7 +231,7 @@ int main(int argc, char *argv[]) {
 
             if (result == 0) {
               // success, update buffer from user
-              struct statx statx;
+              struct statx statx = {0};
               ptrace_read(child_pid, &statx, mmap_page, sizeof(struct statx));
 
               struct stat stat = convert_statx_to_stat(statx);
