@@ -133,7 +133,9 @@ int main(int argc, char *argv[]) {
     kill(getpid(), SIGSTOP);
 
     // run child process
-    return execvp(argv[1], &argv[1]);
+    int result = execvp(argv[1], &argv[1]);
+    perror("execvp");
+    return result;
   } else {
     // in parent
     // wait for SIGSTOP
@@ -153,7 +155,7 @@ int main(int argc, char *argv[]) {
 
       // child process exited
       if (WIFEXITED(status))
-        break;
+        return WEXITSTATUS(status);
 
       // 0x80: see PTRACE_O_TRACESYSGOOD
       if (WIFSTOPPED(status) && (WSTOPSIG(status) & 0x80)) {
@@ -178,7 +180,7 @@ int main(int argc, char *argv[]) {
         waitpid(child_pid, &status, 0);
         // child process exited
         if (WIFEXITED(status))
-          break;
+          return WEXITSTATUS(status);
 
         // get result
         ptrace(PTRACE_GETREGSET, child_pid, NT_PRSTATUS, &iovec);
