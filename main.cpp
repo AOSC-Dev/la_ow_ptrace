@@ -253,8 +253,8 @@ int main(int argc, char *argv[]) {
           regs.regs[5] = 8;
           ptrace(PTRACE_SETREGSET, child_pid, NT_PRSTATUS, &iovec);
         } else if (syscall == __NR_ppoll && orig_a4 == 16) {
-          debug_printf("[%d] Handling ppoll(%ld, %ld, %ld, %ld, %ld)\n", child_pid,
-                       orig_a0, orig_a1, orig_a2, orig_a3, orig_a4);
+          debug_printf("[%d] Handling ppoll(%ld, %ld, %ld, %ld, %ld)\n",
+                       child_pid, orig_a0, orig_a1, orig_a2, orig_a3, orig_a4);
           // override a4 to 8
           regs.regs[8] = 8;
           ptrace(PTRACE_SETREGSET, child_pid, NT_PRSTATUS, &iovec);
@@ -291,20 +291,27 @@ int main(int argc, char *argv[]) {
                        child_pid, syscall, orig_a0, orig_a1, orig_a2, orig_a3,
                        result);
         }
+        if (syscall == __NR_faccessat || syscall == __NR_openat ||
+            syscall == __NR_statx || syscall == __NR_readlinkat ||
+            syscall == 79) {
+          char buffer[256] = {0};
+          ptrace_read(child_pid, buffer, orig_a1, 128);
+          debug_printf("[%d] Strace: file path is %s\n", child_pid, buffer);
+        }
 
         if (!mmap_pages[child_pid]) {
           // create page in child
-          uint64_t mmap_page = ptrace_syscall(child_pid, syscall_addr, __NR_mmap, 0,
-                                     16384, PROT_READ | PROT_WRITE,
-                                     MAP_PRIVATE | MAP_ANONYMOUS, -1, 0, 0);
+          uint64_t mmap_page = ptrace_syscall(
+              child_pid, syscall_addr, __NR_mmap, 0, 16384,
+              PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0, 0);
           debug_printf("[%d] Create page for buffer at %lx(%ld)\n", child_pid,
                        mmap_page, mmap_page);
           mmap_pages[child_pid] = mmap_page;
         }
 
         if (result == -ENOSYS) {
-          debug_printf("[%d] Unimplemented syscall by kernel: %ld\n", child_pid,
-                       syscall);
+          debug_printf("[%d] Unimplemented syscall by kernel: %ld(%s)\n", child_pid,
+                       syscall, syscall_name_table[syscall]);
           uint64_t mmap_page = mmap_pages[child_pid];
 
           if (syscall == 79) {
@@ -334,7 +341,7 @@ int main(int argc, char *argv[]) {
             regs.regs[4] = result;
             ptrace(PTRACE_SETREGSET, child_pid, NT_PRSTATUS, &iovec);
           } else if (syscall == 80) {
-            debug_printf("[%d] Handling fstat(%ld, %lx)\n", child_pid, orig_a0,
+            debug_printf("[%d] Handling newfstat(%ld, %lx)\n", child_pid, orig_a0,
                          orig_a1);
 
             // zero path argument
