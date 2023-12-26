@@ -39,7 +39,7 @@ long int ptrace_syscall(int child_pid, uint64_t syscall_addr, uint64_t a7,
   // read current regs
   struct user_regs_struct regs = {0};
   struct iovec iovec = {.iov_base = &regs, .iov_len = sizeof(regs)};
-  ptrace(PTRACE_GETREGSET, child_pid, NT_PRSTATUS, &iovec);
+  assert(ptrace(PTRACE_GETREGSET, child_pid, NT_PRSTATUS, &iovec) == 0);
 
   // override to call our syscall
   struct user_regs_struct temp_regs = {0};
@@ -55,10 +55,10 @@ long int ptrace_syscall(int child_pid, uint64_t syscall_addr, uint64_t a7,
 
   // set registers and single step
   iovec.iov_base = &temp_regs;
-  ptrace(PTRACE_SETREGSET, child_pid, NT_PRSTATUS, &iovec);
+  assert(ptrace(PTRACE_SETREGSET, child_pid, NT_PRSTATUS, &iovec) == 0);
 
   // execute the syscall
-  ptrace(PTRACE_SINGLESTEP, child_pid, 0, 0);
+  assert(ptrace(PTRACE_SINGLESTEP, child_pid, 0, 0) == 0);
 
   // wait for execution finished
   int status;
@@ -66,7 +66,7 @@ long int ptrace_syscall(int child_pid, uint64_t syscall_addr, uint64_t a7,
   assert(WIFSTOPPED(status) && WSTOPSIG(status) == SIGTRAP);
 
   // read register back to get result
-  ptrace(PTRACE_GETREGSET, child_pid, NT_PRSTATUS, &iovec);
+  assert(ptrace(PTRACE_GETREGSET, child_pid, NT_PRSTATUS, &iovec) == 0);
   long int result = temp_regs.regs[4];
   debug_printf("[%d] Invoking in child syscall_%ld(%lx, %lx, %lx, %lx, %lx, "
                "%lx, %lx) = %lx\n",
@@ -74,14 +74,16 @@ long int ptrace_syscall(int child_pid, uint64_t syscall_addr, uint64_t a7,
 
   // restore registers
   iovec.iov_base = &regs;
-  ptrace(PTRACE_SETREGSET, child_pid, NT_PRSTATUS, &iovec);
+  assert(ptrace(PTRACE_SETREGSET, child_pid, NT_PRSTATUS, &iovec) == 0);
   return result;
 }
 
 void ptrace_read(int child_pid, void *dst, uint64_t src, int length) {
   assert((length % 8) == 0);
   for (int i = 0; i < length; i += 8) {
+    errno = 0;
     uint64_t data = ptrace(PTRACE_PEEKDATA, child_pid, src + i, NULL);
+    assert(errno == 0);
     memcpy((uint8_t *)dst + i, &data, (length - i > 8) ? 8 : (length - i));
   }
 }
@@ -89,7 +91,9 @@ void ptrace_read(int child_pid, void *dst, uint64_t src, int length) {
 void ptrace_write(int child_pid, uint64_t dst, void *src, int length) {
   assert((length % 8) == 0);
   for (uint64_t i = 0; i < length; i += 8) {
+    errno = 0;
     ptrace(PTRACE_POKEDATA, child_pid, dst + i, ((uint64_t *)src)[i / 8]);
+    assert(errno == 0);
   }
 }
 
@@ -155,7 +159,7 @@ int main(int argc, char *argv[]) {
   if ((child_pid = fork()) == 0) {
     // in child
     // allow parent to ptrace me
-    ptrace(PTRACE_TRACEME, 0, 0, 0);
+    assert(ptrace(PTRACE_TRACEME, 0, 0, 0) == 0);
 
     // tell parent we are ready
     kill(getpid(), SIGSTOP);
@@ -212,7 +216,7 @@ int main(int argc, char *argv[]) {
           // read registers
           struct user_regs_struct regs = {0};
           struct iovec iovec = {.iov_base = &regs, .iov_len = sizeof(regs)};
-          ptrace(PTRACE_GETREGSET, child_pid, NT_PRSTATUS, &iovec);
+          assert(ptrace(PTRACE_GETREGSET, child_pid, NT_PRSTATUS, &iovec) == 0);
 
           // see struct user_regs_struct
           // read syscall number from register a7(r11)
@@ -232,7 +236,7 @@ int main(int argc, char *argv[]) {
 
             if (cur.revert_pselect6) {
               // revert size to 16
-              ptrace(PTRACE_POKEDATA, child_pid, orig_a5 + 8, 16);
+              assert(ptrace(PTRACE_POKEDATA, child_pid, orig_a5 + 8, 16) == 0);
             }
 
             // get result
