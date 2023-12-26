@@ -166,9 +166,6 @@ int main(int argc, char *argv[]) {
     // mmap one page for syscall emulation in each child process
     std::map<pid_t, uint64_t> mmap_pages;
 
-    // skip first execve: we are using execve in child
-    int first_execve = 1;
-
     // there can be multiple children! record the first child
     pid_t first_child_pid = child_pid;
 
@@ -330,13 +327,15 @@ int main(int argc, char *argv[]) {
 
         // minimal strace
         if (syscall_name_table[syscall]) {
-          debug_printf("[%d] Strace: syscall_%s(%ld, %ld, %ld, %ld) = %ld\n",
-                       child_pid, syscall_name_table[syscall], orig_a0, orig_a1,
-                       orig_a2, orig_a3, result);
+          debug_printf(
+              "[%d] Strace: syscall_%s(%ld, %ld, %ld, %ld, %ld, %ld) = %ld\n",
+              child_pid, syscall_name_table[syscall], orig_a0, orig_a1, orig_a2,
+              orig_a3, orig_a4, orig_a5, result);
         } else {
-          debug_printf("[%d] Strace: syscall_%ld(%ld, %ld, %ld, %ld) = %ld\n",
-                       child_pid, syscall, orig_a0, orig_a1, orig_a2, orig_a3,
-                       result);
+          debug_printf(
+              "[%d] Strace: syscall_%ld(%ld, %ld, %ld, %ld, %ld, %ld) = %ld\n",
+              child_pid, syscall, orig_a0, orig_a1, orig_a2, orig_a3, orig_a4,
+              orig_a5, result);
         }
         if (syscall == __NR_faccessat || syscall == __NR_openat ||
             syscall == __NR_statx || syscall == __NR_readlinkat ||
