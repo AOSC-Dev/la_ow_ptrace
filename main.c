@@ -289,39 +289,6 @@ int main(int argc, char *argv[]) {
           // override a1 to 8
           regs.regs[5] = 8;
           ptrace(PTRACE_SETREGSET, child_pid, NT_PRSTATUS, &iovec);
-        } else if (syscall == __NR_execve) {
-          if (first_execve) {
-            first_execve = 0;
-          } else {
-            debug_printf("[%d] Handling execve(%ld, %ld, %ld)\n", child_pid,
-                         orig_a0, orig_a1, orig_a2);
-
-            // change the first argument to la_ow_ptrace(a0), and prepend
-            // la_ow_ptrace to argv(a1)
-
-            // copy argv[0] to child
-            char buffer[256] = {0};
-            snprintf(buffer, sizeof(buffer), "%s", argv[0]);
-            ptrace_write(child_pid, mmap_page, buffer, sizeof(buffer));
-
-            // create a new argv array
-            // argv[0]
-            ptrace_write(child_pid, mmap_page + 1024, &mmap_page, 8);
-            // argv[1:]
-            for (int i = 0;; i++) {
-              uint64_t ptr =
-                  ptrace(PTRACE_PEEKDATA, child_pid, orig_a1 + i * 8, 0);
-              ptrace_write(child_pid, mmap_page + 1024 + (i + 1) * 8, &ptr, 8);
-              if (!ptr) {
-                break;
-              }
-            }
-
-            // override a0 to mmap_page, a1 to new argv
-            regs.regs[4] = mmap_page;
-            regs.regs[5] = mmap_page + 1024;
-            ptrace(PTRACE_SETREGSET, child_pid, NT_PRSTATUS, &iovec);
-          }
         }
 
         // trace syscall exit
