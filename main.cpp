@@ -161,7 +161,7 @@ int main(int argc, char *argv[]) {
     // PTRACE_O_TRACESYSGOOD: Set bit 7 in the signal number for syscall traps
     // PTRACE_O_TRACEFORK: Trace forked process
     ptrace(PTRACE_SETOPTIONS, child_pid, 0,
-           PTRACE_O_TRACESYSGOOD | PTRACE_O_TRACEFORK);
+           PTRACE_O_TRACESYSGOOD | PTRACE_O_TRACEFORK | PTRACE_O_TRACECLONE);
 
     // mmap one page for syscall emulation in each child process
     std::map<pid_t, uint64_t> mmap_pages;
@@ -206,6 +206,12 @@ int main(int argc, char *argv[]) {
         uint64_t orig_a5 = regs.regs[9];
         // csr_era += 4 in kernel
         uint64_t syscall_addr = regs.csr_era - 4;
+
+        // clone3
+        if (syscall == 435) {
+          debug_printf("[%d] Child called clone3\n", child_pid);
+          continue;
+        }
 
         // revert pselect6 size change
         bool revert_pselect6 = false;
@@ -412,6 +418,10 @@ int main(int argc, char *argv[]) {
             ptrace(PTRACE_SETREGSET, child_pid, NT_PRSTATUS, &iovec);
           }
         }
+      } else if ((status >> 8) == SIGTRAP | (PTRACE_EVENT_FORK << 8)) {
+        debug_printf("[%d] Child forked (PTRACE_EVENT_FORK)\n", child_pid);
+      } else if ((status >> 8) == SIGTRAP | (PTRACE_EVENT_CLONE << 8)) {
+        debug_printf("[%d] Child cloned (PTRACE_EVENT_CLONE)\n", child_pid);
       } else {
         debug_printf("[%d] Unknown status %d\n", child_pid, status);
       }
