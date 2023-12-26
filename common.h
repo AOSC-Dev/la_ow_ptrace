@@ -1,0 +1,1 @@
+extern "C" const char *syscall_name_table[__NR_syscalls];
