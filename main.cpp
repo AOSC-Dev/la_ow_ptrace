@@ -203,8 +203,12 @@ int main(int argc, char *argv[]) {
         uint64_t orig_a2 = regs.regs[6];
         uint64_t orig_a3 = regs.regs[7];
         uint64_t orig_a4 = regs.regs[8];
+        uint64_t orig_a5 = regs.regs[9];
         // csr_era += 4 in kernel
         uint64_t syscall_addr = regs.csr_era - 4;
+
+        // revert pselect6 size change
+        bool revert_pselect6 = false;
 
         // sizeof(sigset_t) is different: 8 vs 16
         if (syscall == __NR_rt_sigprocmask && orig_a3 == 16) {
@@ -258,6 +262,30 @@ int main(int argc, char *argv[]) {
           // override a4 to 8
           regs.regs[8] = 8;
           ptrace(PTRACE_SETREGSET, child_pid, NT_PRSTATUS, &iovec);
+        } else if (syscall == __NR_pselect6 && orig_a5) {
+          debug_printf("[%d] Handling pselect6(%ld, %ld, %ld, %ld, %ld, %ld)\n",
+                       child_pid, orig_a0, orig_a1, orig_a2, orig_a3, orig_a4,
+                       orig_a5);
+          // a5 points to struct sigset_argpack
+          // read size field
+          uint64_t size = ptrace(PTRACE_PEEKDATA, child_pid, orig_a5 + 8, NULL);
+          if (size == 16) {
+            // override size to 8
+            ptrace(PTRACE_POKEDATA, child_pid, orig_a5 + 8, 8);
+            revert_pselect6 = true;
+          }
+        } else if (syscall == __NR_epoll_pwait && orig_a5 == 16) {
+          debug_printf("[%d] Handling epoll_pwait(%ld, %ld, %ld, %ld, %ld, %ld)\n",
+                       child_pid, orig_a0, orig_a1, orig_a2, orig_a3, orig_a4, orig_a5);
+          // override a5 to 8
+          regs.regs[9] = 8;
+          ptrace(PTRACE_SETREGSET, child_pid, NT_PRSTATUS, &iovec);
+        } else if (syscall == __NR_epoll_pwait2 && orig_a5 == 16) {
+          debug_printf("[%d] Handling epoll_pwait2(%ld, %ld, %ld, %ld, %ld, %ld)\n",
+                       child_pid, orig_a0, orig_a1, orig_a2, orig_a3, orig_a4, orig_a5);
+          // override a5 to 8
+          regs.regs[9] = 8;
+          ptrace(PTRACE_SETREGSET, child_pid, NT_PRSTATUS, &iovec);
         } else if (syscall == __NR_execve) {
           // mmap-ed page is invalidated
           mmap_pages[child_pid] = 0;
@@ -275,6 +303,11 @@ int main(int argc, char *argv[]) {
           } else {
             continue;
           }
+        }
+
+        if (revert_pselect6) {
+          // revert size to 16
+          ptrace(PTRACE_POKEDATA, child_pid, orig_a5 + 8, 16);
         }
 
         // get result
@@ -310,8 +343,8 @@ int main(int argc, char *argv[]) {
         }
 
         if (result == -ENOSYS) {
-          debug_printf("[%d] Unimplemented syscall by kernel: %ld(%s)\n", child_pid,
-                       syscall, syscall_name_table[syscall]);
+          debug_printf("[%d] Unimplemented syscall by kernel: %ld(%s)\n",
+                       child_pid, syscall, syscall_name_table[syscall]);
           uint64_t mmap_page = mmap_pages[child_pid];
 
           if (syscall == 79) {
@@ -341,8 +374,8 @@ int main(int argc, char *argv[]) {
             regs.regs[4] = result;
             ptrace(PTRACE_SETREGSET, child_pid, NT_PRSTATUS, &iovec);
           } else if (syscall == 80) {
-            debug_printf("[%d] Handling newfstat(%ld, %lx)\n", child_pid, orig_a0,
-                         orig_a1);
+            debug_printf("[%d] Handling newfstat(%ld, %lx)\n", child_pid,
+                         orig_a0, orig_a1);
 
             // zero path argument
             uint64_t zero = 0;
