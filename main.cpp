@@ -182,9 +182,13 @@ int main(int argc, char *argv[]) {
     // there can be multiple children! record the first child
     pid_t first_child_pid = child_pid;
 
+    // inject signal to child process
+    int inject_signal = 0;
+
     // capture syscall
     while (1) {
-      ptrace(PTRACE_SYSCALL, child_pid, 0, 0);
+      ptrace(PTRACE_SYSCALL, child_pid, 0, inject_signal);
+      inject_signal = 0;
       child_pid = waitpid(-1, &status, 0);
       assert(child_pid > 0);
 
@@ -458,6 +462,18 @@ int main(int argc, char *argv[]) {
           continue;
         } else if ((status >> 8) == SIGSTOP) {
           debug_printf("[%d] Child got SIGSTOP\n", child_pid);
+          continue;
+        } else if ((status >> 8) == SIGCHLD) {
+          debug_printf("[%d] Child got SIGCHLD\n", child_pid);
+          inject_signal = SIGCHLD;
+          continue;
+        } else if ((status >> 8) == SIGINT) {
+          debug_printf("[%d] Child got SIGINT\n", child_pid);
+          inject_signal = SIGINT;
+          continue;
+        } else if ((status >> 8) == SIGWINCH) {
+          debug_printf("[%d] Child got SIGWINCH\n", child_pid);
+          inject_signal = SIGWINCH;
           continue;
         }
       }
