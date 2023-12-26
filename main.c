@@ -135,8 +135,11 @@ const char *syscall_name_table[__NR_syscalls] = {SYSCALL(brk),
                                                  SYSCALL(getpgid),
                                                  SYSCALL(setpgid),
                                                  SYSCALL(rt_sigprocmask),
-                                                 SYSCALL(fcntl),
                                                  SYSCALL(rt_sigaction),
+                                                 SYSCALL(rt_sigpending),
+                                                 SYSCALL(rt_sigtimedwait),
+                                                 SYSCALL(rt_sigsuspend),
+                                                 SYSCALL(fcntl),
                                                  SYSCALL(dup),
                                                  SYSCALL(prlimit64)};
 
@@ -213,6 +216,52 @@ int main(int argc, char *argv[]) {
         uint64_t orig_a3 = regs.regs[7];
         // csr_era += 4 in kernel
         uint64_t syscall_addr = regs.csr_era - 4;
+
+        // sizeof(sigset_t) is different: 8 vs 16
+        if (syscall == __NR_rt_sigprocmask && orig_a3 == 16) {
+          debug_printf("Handling rt_sigprocmask(%d, %d, %d, %d)\n", orig_a0,
+                       orig_a1, orig_a2, orig_a3);
+          // clear higher part of old sigset(a2)
+          if (orig_a2) {
+            ptrace(PTRACE_POKEDATA, child_pid, orig_a2 + 8, 0);
+          }
+
+          // override a3 to 8
+          regs.regs[7] = 8;
+          ptrace(PTRACE_SETREGSET, child_pid, NT_PRSTATUS, &iovec);
+        } else if (syscall == __NR_rt_sigaction && orig_a3 == 16) {
+          debug_printf("Handling rt_sigaction(%d, %d, %d, %d)\n", orig_a0,
+                       orig_a1, orig_a2, orig_a3);
+          // clear higher part of old sigset in struct sigaction(a2)
+          if (orig_a2) {
+            ptrace(PTRACE_POKEDATA, child_pid, orig_a2 + 24, 0);
+          }
+
+          // override a3 to 8
+          regs.regs[7] = 8;
+          ptrace(PTRACE_SETREGSET, child_pid, NT_PRSTATUS, &iovec);
+        } else if (syscall == __NR_rt_sigpending && orig_a1 == 16) {
+          debug_printf("Handling rt_sigpending(%d, %d)\n", orig_a0, orig_a1);
+          // clear higher part of old sigset in sigset(a0)
+          if (orig_a0) {
+            ptrace(PTRACE_POKEDATA, child_pid, orig_a0 + 8, 0);
+          }
+
+          // override a1 to 8
+          regs.regs[5] = 8;
+          ptrace(PTRACE_SETREGSET, child_pid, NT_PRSTATUS, &iovec);
+        } else if (syscall == __NR_rt_sigtimedwait && orig_a3 == 16) {
+          debug_printf("Handling rt_sigtimedwait(%d, %d, %d, %d)\n", orig_a0,
+                       orig_a1, orig_a2, orig_a3);
+          // override a3 to 8
+          regs.regs[7] = 8;
+          ptrace(PTRACE_SETREGSET, child_pid, NT_PRSTATUS, &iovec);
+        } else if (syscall == __NR_rt_sigsuspend && orig_a1 == 16) {
+          debug_printf("Handling rt_sigsuspend(%d, %d)\n", orig_a0, orig_a1);
+          // override a1 to 8
+          regs.regs[5] = 8;
+          ptrace(PTRACE_SETREGSET, child_pid, NT_PRSTATUS, &iovec);
+        }
 
         // trace syscall exit
         ptrace(PTRACE_SYSCALL, child_pid, 0, 0);
