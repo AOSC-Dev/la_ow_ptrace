@@ -13,10 +13,14 @@ mkdir build
 cd build
 cmake ..
 make
-./la_ow_ptrace /path/to/ow/binary
+./la_ow /path/to/ow/binary
 ```
 
 You can set environment variable `LA_OW_PTRACE_DEBUG=1` to enable debug logs.
+
+## How does it work
+
+It intercepts syscall from child process. When it met unimplemented old-world-only syscall, it calls the equivalent new-work syscall in child process and converts the result. For syscall where sigset is used, the size is changed from 16 to 8.
 
 ## Progress
 
@@ -27,3 +31,9 @@ You can set environment variable `LA_OW_PTRACE_DEBUG=1` to enable debug logs.
 - [x] handle child process
 - [x] signalfd4
 - [ ] getrlimit/setrlimit
+
+## How to run WPS
+
+1. Install libLOL from AOSC OS
+2. Install WPS Office dpkg
+3. Run WPS Office with `la_ow`: `./la_ow /opt/kingsoft/wps-office/office6/wps`
