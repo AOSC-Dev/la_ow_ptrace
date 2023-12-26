@@ -118,6 +118,17 @@ struct stat convert_statx_to_stat(struct statx statx) {
   return stat;
 }
 
+// record the state of each tracee
+struct trace_state {
+  // buffer in child process
+  uint64_t mmap_page;
+  // this is syscall exit
+  bool is_syscall_exit;
+
+  // revert pselect6 size change
+  bool revert_pselect6 = false;
+};
+
 int main(int argc, char *argv[]) {
   if (argc == 1) {
     fprintf(stderr, "%s command args...\n", argv[0]);
@@ -165,8 +176,8 @@ int main(int argc, char *argv[]) {
            PTRACE_O_TRACESYSGOOD | PTRACE_O_TRACEFORK | PTRACE_O_TRACECLONE |
                PTRACE_O_TRACEVFORK);
 
-    // mmap one page for syscall emulation in each child process
-    std::map<pid_t, uint64_t> mmap_pages;
+    // maintain state for each tracee
+    std::map<pid_t, trace_state> states;
 
     // there can be multiple children! record the first child
     pid_t first_child_pid = child_pid;
@@ -192,7 +203,7 @@ int main(int argc, char *argv[]) {
 
         // 0x80: see PTRACE_O_TRACESYSGOOD
         if (WSTOPSIG(status) == (SIGTRAP | 0x80)) {
-          // syscall enter
+          trace_state &cur = states[child_pid];
 
           // read registers
           struct user_regs_struct regs = {0};
@@ -212,225 +223,210 @@ int main(int argc, char *argv[]) {
           // csr_era += 4 in kernel
           uint64_t syscall_addr = regs.csr_era - 4;
 
-          // clone3
-          if (syscall == 435) {
-            debug_printf("[%d] Child called clone3\n", child_pid);
-            continue;
-          }
+          if (cur.is_syscall_exit) {
+            // syscall exit
 
-          // revert pselect6 size change
-          bool revert_pselect6 = false;
-
-          // sizeof(sigset_t) is different: 8 vs 16
-          if (syscall == __NR_rt_sigprocmask && orig_a3 == 16) {
-            debug_printf("[%d] Handling rt_sigprocmask(%ld, %ld, %ld, %ld)\n",
-                         child_pid, orig_a0, orig_a1, orig_a2, orig_a3);
-            // clear higher part of old sigset(a2)
-            if (orig_a2) {
-              ptrace(PTRACE_POKEDATA, child_pid, orig_a2 + 8, 0);
+            if (cur.revert_pselect6) {
+              // revert size to 16
+              ptrace(PTRACE_POKEDATA, child_pid, orig_a5 + 8, 16);
             }
 
-            // override a3 to 8
-            regs.regs[7] = 8;
-            ptrace(PTRACE_SETREGSET, child_pid, NT_PRSTATUS, &iovec);
-          } else if (syscall == __NR_rt_sigaction && orig_a3 == 16) {
-            debug_printf("[%d] Handling rt_sigaction(%ld, %ld, %ld, %ld)\n",
-                         child_pid, orig_a0, orig_a1, orig_a2, orig_a3);
-            // clear higher part of old sigset in struct sigaction(a2)
-            if (orig_a2) {
-              ptrace(PTRACE_POKEDATA, child_pid, orig_a2 + 24, 0);
-            }
+            // get result
+            int64_t result = regs.regs[4];
 
-            // override a3 to 8
-            regs.regs[7] = 8;
-            ptrace(PTRACE_SETREGSET, child_pid, NT_PRSTATUS, &iovec);
-          } else if (syscall == __NR_rt_sigpending && orig_a1 == 16) {
-            debug_printf("[%d] Handling rt_sigpending(%ld, %ld)\n", child_pid,
-                         orig_a0, orig_a1);
-            // clear higher part of old sigset in sigset(a0)
-            if (orig_a0) {
-              ptrace(PTRACE_POKEDATA, child_pid, orig_a0 + 8, 0);
-            }
-
-            // override a1 to 8
-            regs.regs[5] = 8;
-            ptrace(PTRACE_SETREGSET, child_pid, NT_PRSTATUS, &iovec);
-          } else if (syscall == __NR_rt_sigtimedwait && orig_a3 == 16) {
-            debug_printf("[%d] Handling rt_sigtimedwait(%ld, %ld, %ld, %ld)\n",
-                         child_pid, orig_a0, orig_a1, orig_a2, orig_a3);
-            // override a3 to 8
-            regs.regs[7] = 8;
-            ptrace(PTRACE_SETREGSET, child_pid, NT_PRSTATUS, &iovec);
-          } else if (syscall == __NR_rt_sigsuspend && orig_a1 == 16) {
-            debug_printf("[%d] Handling rt_sigsuspend(%ld, %ld)\n", child_pid,
-                         orig_a0, orig_a1);
-            // override a1 to 8
-            regs.regs[5] = 8;
-            ptrace(PTRACE_SETREGSET, child_pid, NT_PRSTATUS, &iovec);
-          } else if (syscall == __NR_ppoll && orig_a4 == 16) {
-            debug_printf("[%d] Handling ppoll(%ld, %ld, %ld, %ld, %ld)\n",
-                         child_pid, orig_a0, orig_a1, orig_a2, orig_a3,
-                         orig_a4);
-            // override a4 to 8
-            regs.regs[8] = 8;
-            ptrace(PTRACE_SETREGSET, child_pid, NT_PRSTATUS, &iovec);
-          } else if (syscall == __NR_pselect6 && orig_a5) {
-            debug_printf(
-                "[%d] Handling pselect6(%ld, %ld, %ld, %ld, %ld, %ld)\n",
-                child_pid, orig_a0, orig_a1, orig_a2, orig_a3, orig_a4,
-                orig_a5);
-            // a5 points to struct sigset_argpack
-            // read size field
-            uint64_t size =
-                ptrace(PTRACE_PEEKDATA, child_pid, orig_a5 + 8, NULL);
-            if (size == 16) {
-              // override size to 8
-              ptrace(PTRACE_POKEDATA, child_pid, orig_a5 + 8, 8);
-              revert_pselect6 = true;
-            }
-          } else if (syscall == __NR_epoll_pwait && orig_a5 == 16) {
-            debug_printf(
-                "[%d] Handling epoll_pwait(%ld, %ld, %ld, %ld, %ld, %ld)\n",
-                child_pid, orig_a0, orig_a1, orig_a2, orig_a3, orig_a4,
-                orig_a5);
-            // override a5 to 8
-            regs.regs[9] = 8;
-            ptrace(PTRACE_SETREGSET, child_pid, NT_PRSTATUS, &iovec);
-          } else if (syscall == __NR_epoll_pwait2 && orig_a5 == 16) {
-            debug_printf(
-                "[%d] Handling epoll_pwait2(%ld, %ld, %ld, %ld, %ld, %ld)\n",
-                child_pid, orig_a0, orig_a1, orig_a2, orig_a3, orig_a4,
-                orig_a5);
-            // override a5 to 8
-            regs.regs[9] = 8;
-            ptrace(PTRACE_SETREGSET, child_pid, NT_PRSTATUS, &iovec);
-          } else if (syscall == __NR_signalfd4 && orig_a2 == 16) {
-            debug_printf("[%d] Handling signalfd4(%ld, %ld, %ld, %ld)\n",
-                         child_pid, orig_a0, orig_a1, orig_a2, orig_a3);
-            // override a2 to 8
-            regs.regs[6] = 8;
-            ptrace(PTRACE_SETREGSET, child_pid, NT_PRSTATUS, &iovec);
-          } else if (syscall == __NR_execve) {
-            // mmap-ed page is invalidated
-            mmap_pages[child_pid] = 0;
-          }
-
-          // trace syscall exit
-          ptrace(PTRACE_SYSCALL, child_pid, 0, 0);
-          waitpid(child_pid, &status, 0);
-          assert(WIFSTOPPED(status) && WSTOPSIG(status) == (SIGTRAP | 0x80));
-
-          // child process exited
-          if (WIFEXITED(status)) {
-            if (child_pid == first_child_pid) {
-              // propagate exit status
-              return WEXITSTATUS(status);
+            // minimal strace
+            if (syscall_name_table[syscall]) {
+              debug_printf("[%d] Strace: syscall_%s(%ld, %ld, %ld, %ld, %ld, "
+                           "%ld) = %ld\n",
+                           child_pid, syscall_name_table[syscall], orig_a0,
+                           orig_a1, orig_a2, orig_a3, orig_a4, orig_a5, result);
             } else {
-              continue;
+              debug_printf("[%d] Strace: syscall_%ld(%ld, %ld, %ld, %ld, %ld, "
+                           "%ld) = %ld\n",
+                           child_pid, syscall, orig_a0, orig_a1, orig_a2,
+                           orig_a3, orig_a4, orig_a5, result);
             }
-          }
+            if (syscall == __NR_faccessat || syscall == __NR_openat ||
+                syscall == __NR_statx || syscall == __NR_readlinkat ||
+                syscall == 79) {
+              char buffer[256] = {0};
+              ptrace_read(child_pid, buffer, orig_a1, 128);
+              debug_printf("[%d] Strace: file path is %s\n", child_pid, buffer);
+            }
 
-          if (revert_pselect6) {
-            // revert size to 16
-            ptrace(PTRACE_POKEDATA, child_pid, orig_a5 + 8, 16);
-          }
+            if (!cur.mmap_page && syscall != __NR_execve) {
+              // create page in child
+              uint64_t mmap_page =
+                  ptrace_syscall(child_pid, syscall_addr, __NR_mmap, 0, 16384,
+                                 PROT_READ | PROT_WRITE,
+                                 MAP_PRIVATE | MAP_ANONYMOUS, -1, 0, 0);
+              debug_printf("[%d] Create page for buffer at %lx(%ld)\n",
+                           child_pid, mmap_page, mmap_page);
+              cur.mmap_page = mmap_page;
+            }
 
-          // get result
-          ptrace(PTRACE_GETREGSET, child_pid, NT_PRSTATUS, &iovec);
-          int64_t result = regs.regs[4];
+            if (result == -ENOSYS) {
+              debug_printf("[%d] Unimplemented syscall by kernel: %ld(%s)\n",
+                           child_pid, syscall, syscall_name_table[syscall]);
+              uint64_t mmap_page = cur.mmap_page;
 
-          // minimal strace
-          if (syscall_name_table[syscall]) {
-            debug_printf(
-                "[%d] Strace: syscall_%s(%ld, %ld, %ld, %ld, %ld, %ld) = %ld\n",
-                child_pid, syscall_name_table[syscall], orig_a0, orig_a1,
-                orig_a2, orig_a3, orig_a4, orig_a5, result);
+              if (syscall == 79) {
+                debug_printf("[%d] Handling newfstatat(%ld, %lx, %lx, %ld)\n",
+                             child_pid, orig_a0, orig_a1, orig_a2, orig_a3);
+
+                // implementing syscall via statx
+                // statx(fd, path,
+                // AT_STATX_SYNC_AS_STAT|AT_NO_AUTOMOUNT,
+                // STATX_BASIC_STATS, &statx)
+                uint64_t result = ptrace_syscall(
+                    child_pid, syscall_addr, __NR_statx, orig_a0, orig_a1,
+                    AT_STATX_SYNC_AS_STAT | AT_NO_AUTOMOUNT, STATX_BASIC_STATS,
+                    mmap_page, 0, 0);
+
+                if (result == 0) {
+                  // success, update buffer from user
+                  // follow glibc __cp_stat64_statx
+                  struct statx statx = {0};
+                  ptrace_read(child_pid, &statx, mmap_page,
+                              sizeof(struct statx));
+
+                  struct stat stat = convert_statx_to_stat(statx);
+                  ptrace_write(child_pid, orig_a2, &stat, sizeof(struct stat));
+                }
+
+                // pass result to user
+                regs.regs[4] = result;
+                ptrace(PTRACE_SETREGSET, child_pid, NT_PRSTATUS, &iovec);
+              } else if (syscall == 80) {
+                debug_printf("[%d] Handling newfstat(%ld, %lx)\n", child_pid,
+                             orig_a0, orig_a1);
+
+                // zero path argument
+                uint64_t zero = 0;
+                ptrace_write(child_pid, mmap_page, &zero, 8);
+
+                // implementing syscall via statx
+                // statx(fd, "",
+                // AT_STATX_SYNC_AS_STAT|AT_NO_AUTOMOUNT|AT_EMPTY_PATH,
+                // STATX_BASIC_STATS, &statx)
+                uint64_t result = ptrace_syscall(
+                    child_pid, syscall_addr, __NR_statx, orig_a0, mmap_page,
+                    AT_STATX_SYNC_AS_STAT | AT_NO_AUTOMOUNT | AT_EMPTY_PATH,
+                    STATX_BASIC_STATS, mmap_page, 0, 0);
+
+                if (result == 0) {
+                  // success, update buffer from user
+                  struct statx statx = {0};
+                  ptrace_read(child_pid, &statx, mmap_page,
+                              sizeof(struct statx));
+
+                  struct stat stat = convert_statx_to_stat(statx);
+                  ptrace_write(child_pid, orig_a1, &stat, sizeof(struct stat));
+                }
+
+                // pass result to user
+                regs.regs[4] = result;
+                ptrace(PTRACE_SETREGSET, child_pid, NT_PRSTATUS, &iovec);
+              }
+            }
           } else {
-            debug_printf("[%d] Strace: syscall_%ld(%ld, %ld, %ld, %ld, %ld, "
-                         "%ld) = %ld\n",
-                         child_pid, syscall, orig_a0, orig_a1, orig_a2, orig_a3,
-                         orig_a4, orig_a5, result);
-          }
-          if (syscall == __NR_faccessat || syscall == __NR_openat ||
-              syscall == __NR_statx || syscall == __NR_readlinkat ||
-              syscall == 79) {
-            char buffer[256] = {0};
-            ptrace_read(child_pid, buffer, orig_a1, 128);
-            debug_printf("[%d] Strace: file path is %s\n", child_pid, buffer);
-          }
-
-          if (!mmap_pages[child_pid] && syscall != __NR_execve) {
-            // create page in child
-            uint64_t mmap_page = ptrace_syscall(
-                child_pid, syscall_addr, __NR_mmap, 0, 16384,
-                PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0, 0);
-            debug_printf("[%d] Create page for buffer at %lx(%ld)\n", child_pid,
-                         mmap_page, mmap_page);
-            mmap_pages[child_pid] = mmap_page;
-          }
-
-          if (result == -ENOSYS) {
-            debug_printf("[%d] Unimplemented syscall by kernel: %ld(%s)\n",
-                         child_pid, syscall, syscall_name_table[syscall]);
-            uint64_t mmap_page = mmap_pages[child_pid];
-
-            if (syscall == 79) {
-              debug_printf("[%d] Handling newfstatat(%ld, %lx, %lx, %ld)\n",
+            // syscall enter
+            // sizeof(sigset_t) is different: 8 vs 16
+            if (syscall == __NR_rt_sigprocmask && orig_a3 == 16) {
+              debug_printf("[%d] Handling rt_sigprocmask(%ld, %ld, %ld, %ld)\n",
                            child_pid, orig_a0, orig_a1, orig_a2, orig_a3);
-
-              // implementing syscall via statx
-              // statx(fd, path,
-              // AT_STATX_SYNC_AS_STAT|AT_NO_AUTOMOUNT,
-              // STATX_BASIC_STATS, &statx)
-              uint64_t result = ptrace_syscall(
-                  child_pid, syscall_addr, __NR_statx, orig_a0, orig_a1,
-                  AT_STATX_SYNC_AS_STAT | AT_NO_AUTOMOUNT, STATX_BASIC_STATS,
-                  mmap_page, 0, 0);
-
-              if (result == 0) {
-                // success, update buffer from user
-                // follow glibc __cp_stat64_statx
-                struct statx statx = {0};
-                ptrace_read(child_pid, &statx, mmap_page, sizeof(struct statx));
-
-                struct stat stat = convert_statx_to_stat(statx);
-                ptrace_write(child_pid, orig_a2, &stat, sizeof(struct stat));
+              // clear higher part of old sigset(a2)
+              if (orig_a2) {
+                ptrace(PTRACE_POKEDATA, child_pid, orig_a2 + 8, 0);
               }
 
-              // pass result to user
-              regs.regs[4] = result;
+              // override a3 to 8
+              regs.regs[7] = 8;
               ptrace(PTRACE_SETREGSET, child_pid, NT_PRSTATUS, &iovec);
-            } else if (syscall == 80) {
-              debug_printf("[%d] Handling newfstat(%ld, %lx)\n", child_pid,
+            } else if (syscall == __NR_rt_sigaction && orig_a3 == 16) {
+              debug_printf("[%d] Handling rt_sigaction(%ld, %ld, %ld, %ld)\n",
+                           child_pid, orig_a0, orig_a1, orig_a2, orig_a3);
+              // clear higher part of old sigset in struct sigaction(a2)
+              if (orig_a2) {
+                ptrace(PTRACE_POKEDATA, child_pid, orig_a2 + 24, 0);
+              }
+
+              // override a3 to 8
+              regs.regs[7] = 8;
+              ptrace(PTRACE_SETREGSET, child_pid, NT_PRSTATUS, &iovec);
+            } else if (syscall == __NR_rt_sigpending && orig_a1 == 16) {
+              debug_printf("[%d] Handling rt_sigpending(%ld, %ld)\n", child_pid,
                            orig_a0, orig_a1);
-
-              // zero path argument
-              uint64_t zero = 0;
-              ptrace_write(child_pid, mmap_page, &zero, 8);
-
-              // implementing syscall via statx
-              // statx(fd, "",
-              // AT_STATX_SYNC_AS_STAT|AT_NO_AUTOMOUNT|AT_EMPTY_PATH,
-              // STATX_BASIC_STATS, &statx)
-              uint64_t result = ptrace_syscall(
-                  child_pid, syscall_addr, __NR_statx, orig_a0, mmap_page,
-                  AT_STATX_SYNC_AS_STAT | AT_NO_AUTOMOUNT | AT_EMPTY_PATH,
-                  STATX_BASIC_STATS, mmap_page, 0, 0);
-
-              if (result == 0) {
-                // success, update buffer from user
-                struct statx statx = {0};
-                ptrace_read(child_pid, &statx, mmap_page, sizeof(struct statx));
-
-                struct stat stat = convert_statx_to_stat(statx);
-                ptrace_write(child_pid, orig_a1, &stat, sizeof(struct stat));
+              // clear higher part of old sigset in sigset(a0)
+              if (orig_a0) {
+                ptrace(PTRACE_POKEDATA, child_pid, orig_a0 + 8, 0);
               }
 
-              // pass result to user
-              regs.regs[4] = result;
+              // override a1 to 8
+              regs.regs[5] = 8;
               ptrace(PTRACE_SETREGSET, child_pid, NT_PRSTATUS, &iovec);
+            } else if (syscall == __NR_rt_sigtimedwait && orig_a3 == 16) {
+              debug_printf(
+                  "[%d] Handling rt_sigtimedwait(%ld, %ld, %ld, %ld)\n",
+                  child_pid, orig_a0, orig_a1, orig_a2, orig_a3);
+              // override a3 to 8
+              regs.regs[7] = 8;
+              ptrace(PTRACE_SETREGSET, child_pid, NT_PRSTATUS, &iovec);
+            } else if (syscall == __NR_rt_sigsuspend && orig_a1 == 16) {
+              debug_printf("[%d] Handling rt_sigsuspend(%ld, %ld)\n", child_pid,
+                           orig_a0, orig_a1);
+              // override a1 to 8
+              regs.regs[5] = 8;
+              ptrace(PTRACE_SETREGSET, child_pid, NT_PRSTATUS, &iovec);
+            } else if (syscall == __NR_ppoll && orig_a4 == 16) {
+              debug_printf("[%d] Handling ppoll(%ld, %ld, %ld, %ld, %ld)\n",
+                           child_pid, orig_a0, orig_a1, orig_a2, orig_a3,
+                           orig_a4);
+              // override a4 to 8
+              regs.regs[8] = 8;
+              ptrace(PTRACE_SETREGSET, child_pid, NT_PRSTATUS, &iovec);
+            } else if (syscall == __NR_pselect6 && orig_a5) {
+              debug_printf(
+                  "[%d] Handling pselect6(%ld, %ld, %ld, %ld, %ld, %ld)\n",
+                  child_pid, orig_a0, orig_a1, orig_a2, orig_a3, orig_a4,
+                  orig_a5);
+              // a5 points to struct sigset_argpack
+              // read size field
+              uint64_t size =
+                  ptrace(PTRACE_PEEKDATA, child_pid, orig_a5 + 8, NULL);
+              if (size == 16) {
+                // override size to 8
+                ptrace(PTRACE_POKEDATA, child_pid, orig_a5 + 8, 8);
+                cur.revert_pselect6 = true;
+              }
+            } else if (syscall == __NR_epoll_pwait && orig_a5 == 16) {
+              debug_printf(
+                  "[%d] Handling epoll_pwait(%ld, %ld, %ld, %ld, %ld, %ld)\n",
+                  child_pid, orig_a0, orig_a1, orig_a2, orig_a3, orig_a4,
+                  orig_a5);
+              // override a5 to 8
+              regs.regs[9] = 8;
+              ptrace(PTRACE_SETREGSET, child_pid, NT_PRSTATUS, &iovec);
+            } else if (syscall == __NR_epoll_pwait2 && orig_a5 == 16) {
+              debug_printf("[%d] Handling epoll_pwait2(%ld, %ld, %ld, %ld, "
+                           "%ld, %ld)\n",
+                           child_pid, orig_a0, orig_a1, orig_a2, orig_a3,
+                           orig_a4, orig_a5);
+              // override a5 to 8
+              regs.regs[9] = 8;
+              ptrace(PTRACE_SETREGSET, child_pid, NT_PRSTATUS, &iovec);
+            } else if (syscall == __NR_signalfd4 && orig_a2 == 16) {
+              debug_printf("[%d] Handling signalfd4(%ld, %ld, %ld, %ld)\n",
+                           child_pid, orig_a0, orig_a1, orig_a2, orig_a3);
+              // override a2 to 8
+              regs.regs[6] = 8;
+              ptrace(PTRACE_SETREGSET, child_pid, NT_PRSTATUS, &iovec);
+            } else if (syscall == __NR_execve) {
+              // mmap-ed page is invalidated
+              cur.mmap_page = 0;
             }
           }
+          cur.is_syscall_exit = !cur.is_syscall_exit;
           continue;
         } else if ((status >> 8) == (SIGTRAP | (PTRACE_EVENT_FORK << 8))) {
           debug_printf("[%d] Child fork (PTRACE_EVENT_FORK)\n", child_pid);
@@ -458,7 +454,10 @@ int main(int argc, char *argv[]) {
           // calls to execve(2) by the traced process will cause it to be sent
           // a SIGTRAP signal, giving the parent a chance to gain control
           // before the new program begins execution."
-          debug_printf("[%d] Child begin to run\n", child_pid);
+          debug_printf("[%d] Child got SIGTRAP\n", child_pid);
+          continue;
+        } else if ((status >> 8) == SIGSTOP) {
+          debug_printf("[%d] Child got SIGSTOP\n", child_pid);
           continue;
         }
       }
