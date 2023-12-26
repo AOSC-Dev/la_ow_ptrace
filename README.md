@@ -37,3 +37,9 @@ It intercepts syscall from child process. When it met unimplemented old-world-on
 1. Install libLOL from AOSC OS
 2. Install WPS Office dpkg
 3. Run WPS Office with `la_ow`: `./la_ow /opt/kingsoft/wps-office/office6/wps`
+
+## How to run Lbrowser(Loongson Browser)
+
+1. Install libLOL from AOSC OS
+2. Install Lbrowser dpkg
+3. Run Lbrowser with `la_ow`: `./la_ow /opt/apps/lbrowser/lbrowser --no-sandbox`
