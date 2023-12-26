@@ -1,5 +1,6 @@
 #include <asm-generic/unistd.h>
 #include <assert.h>
+#include <cstdint>
 #include <elf.h>
 #include <errno.h>
 #include <linux/fcntl.h>
@@ -17,6 +18,8 @@
 
 #include <asm-generic/stat.h>
 #include <linux/ptrace.h>
+
+#include <map>
 
 #include "common.h"
 
@@ -78,7 +81,7 @@ void ptrace_read(int child_pid, void *dst, uint64_t src, int length) {
   assert((length % 8) == 0);
   for (int i = 0; i < length; i += 8) {
     uint64_t data = ptrace(PTRACE_PEEKDATA, child_pid, src + i, NULL);
-    memcpy(dst + i, &data, (length - i > 8) ? 8 : (length - i));
+    memcpy((uint8_t *)dst + i, &data, (length - i > 8) ? 8 : (length - i));
   }
 }
 
@@ -160,8 +163,8 @@ int main(int argc, char *argv[]) {
     ptrace(PTRACE_SETOPTIONS, child_pid, 0,
            PTRACE_O_TRACESYSGOOD | PTRACE_O_TRACEFORK);
 
-    // mmap one page for syscall emulation
-    uint64_t mmap_page = 0;
+    // mmap one page for syscall emulation in each child process
+    std::map<pid_t, uint64_t> mmap_pages;
 
     // skip first execve: we are using execve in child
     int first_execve = 1;
@@ -248,6 +251,9 @@ int main(int argc, char *argv[]) {
           // override a1 to 8
           regs.regs[5] = 8;
           ptrace(PTRACE_SETREGSET, child_pid, NT_PRSTATUS, &iovec);
+        } else if (syscall == __NR_execve) {
+          // mmap-ed page is invalidated
+          mmap_pages[child_pid] = 0;
         }
 
         // trace syscall exit
@@ -279,18 +285,20 @@ int main(int argc, char *argv[]) {
                        result);
         }
 
-        if (!mmap_page) {
+        if (!mmap_pages[child_pid]) {
           // create page in child
-          mmap_page = ptrace_syscall(child_pid, syscall_addr, __NR_mmap, 0,
+          uint64_t mmap_page = ptrace_syscall(child_pid, syscall_addr, __NR_mmap, 0,
                                      16384, PROT_READ | PROT_WRITE,
                                      MAP_PRIVATE | MAP_ANONYMOUS, -1, 0, 0);
           debug_printf("[%d] Create page for buffer at %lx(%ld)\n", child_pid,
                        mmap_page, mmap_page);
+          mmap_pages[child_pid] = mmap_page;
         }
 
         if (result == -ENOSYS) {
           debug_printf("[%d] Unimplemented syscall by kernel: %ld\n", child_pid,
                        syscall);
+          uint64_t mmap_page = mmap_pages[child_pid];
 
           if (syscall == 79) {
             debug_printf("[%d] Handling newfstatat(%ld, %lx, %lx, %ld)\n",
