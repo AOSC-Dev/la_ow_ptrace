@@ -62,8 +62,9 @@ long int ptrace_syscall(int child_pid, uint64_t syscall_addr, uint64_t a7,
   // read register back to get result
   ptrace(PTRACE_GETREGSET, child_pid, NT_PRSTATUS, &iovec);
   long int result = temp_regs.regs[4];
-  debug_printf("Calling syscall_%ld(%lx, %lx, %lx, %lx, %lx, %lx, %lx) = %lx\n",
-               a7, a0, a1, a2, a3, a4, a5, a6, result);
+  debug_printf("[%d] Invoking in child syscall_%ld(%lx, %lx, %lx, %lx, %lx, "
+               "%lx, %lx) = %lx\n",
+               child_pid, a7, a0, a1, a2, a3, a4, a5, a6, result);
 
   // restore registers
   iovec.iov_base = &regs;
@@ -126,7 +127,9 @@ const char *syscall_name_table[__NR_syscalls] = {SYSCALL(brk),
                                                  SYSCALL(set_robust_list),
                                                  SYSCALL(ioctl),
                                                  SYSCALL(getrandom),
-                                                 SYSCALL(read),
+                                                 SYSCALL(clone),
+                                                 SYSCALL(prctl),
+                                                 SYSCALL(wait4),
                                                  SYSCALL(lseek),
                                                  SYSCALL(getdents64),
                                                  SYSCALL(getuid),
@@ -138,6 +141,9 @@ const char *syscall_name_table[__NR_syscalls] = {SYSCALL(brk),
                                                  SYSCALL(getppid),
                                                  SYSCALL(getpgid),
                                                  SYSCALL(setpgid),
+                                                 SYSCALL(setgid),
+                                                 SYSCALL(setuid),
+                                                 SYSCALL(uname),
                                                  SYSCALL(rt_sigprocmask),
                                                  SYSCALL(rt_sigaction),
                                                  SYSCALL(rt_sigpending),
@@ -190,20 +196,34 @@ int main(int argc, char *argv[]) {
     int status;
     waitpid(child_pid, &status, 0);
 
-    // Set bit 7 in the signal number for syscall traps
-    ptrace(PTRACE_SETOPTIONS, child_pid, 0, PTRACE_O_TRACESYSGOOD);
+    // PTRACE_O_TRACESYSGOOD: Set bit 7 in the signal number for syscall traps
+    // PTRACE_O_TRACEFORK: Trace forked process
+    ptrace(PTRACE_SETOPTIONS, child_pid, 0,
+           PTRACE_O_TRACESYSGOOD | PTRACE_O_TRACEFORK);
 
     // mmap one page for syscall emulation
     uint64_t mmap_page = 0;
 
+    // skip first execve: we are using execve in child
+    int first_execve = 1;
+
+    // there can be multiple children! record the first child
+    pid_t first_child_pid = child_pid;
+
     // capture syscall
     while (1) {
       ptrace(PTRACE_SYSCALL, child_pid, 0, 0);
-      waitpid(child_pid, &status, 0);
+      child_pid = waitpid(-1, &status, 0);
 
       // child process exited
-      if (WIFEXITED(status))
-        return WEXITSTATUS(status);
+      if (WIFEXITED(status)) {
+        if (child_pid == first_child_pid) {
+          // propagate exit status
+          return WEXITSTATUS(status);
+        } else {
+          continue;
+        }
+      }
 
       // 0x80: see PTRACE_O_TRACESYSGOOD
       if (WIFSTOPPED(status) && (WSTOPSIG(status) & 0x80)) {
@@ -225,8 +245,8 @@ int main(int argc, char *argv[]) {
 
         // sizeof(sigset_t) is different: 8 vs 16
         if (syscall == __NR_rt_sigprocmask && orig_a3 == 16) {
-          debug_printf("Handling rt_sigprocmask(%ld, %ld, %ld, %ld)\n", orig_a0,
-                       orig_a1, orig_a2, orig_a3);
+          debug_printf("[%d] Handling rt_sigprocmask(%ld, %ld, %ld, %ld)\n",
+                       child_pid, orig_a0, orig_a1, orig_a2, orig_a3);
           // clear higher part of old sigset(a2)
           if (orig_a2) {
             ptrace(PTRACE_POKEDATA, child_pid, orig_a2 + 8, 0);
@@ -236,8 +256,8 @@ int main(int argc, char *argv[]) {
           regs.regs[7] = 8;
           ptrace(PTRACE_SETREGSET, child_pid, NT_PRSTATUS, &iovec);
         } else if (syscall == __NR_rt_sigaction && orig_a3 == 16) {
-          debug_printf("Handling rt_sigaction(%ld, %ld, %ld, %ld)\n", orig_a0,
-                       orig_a1, orig_a2, orig_a3);
+          debug_printf("[%d] Handling rt_sigaction(%ld, %ld, %ld, %ld)\n",
+                       child_pid, orig_a0, orig_a1, orig_a2, orig_a3);
           // clear higher part of old sigset in struct sigaction(a2)
           if (orig_a2) {
             ptrace(PTRACE_POKEDATA, child_pid, orig_a2 + 24, 0);
@@ -247,7 +267,8 @@ int main(int argc, char *argv[]) {
           regs.regs[7] = 8;
           ptrace(PTRACE_SETREGSET, child_pid, NT_PRSTATUS, &iovec);
         } else if (syscall == __NR_rt_sigpending && orig_a1 == 16) {
-          debug_printf("Handling rt_sigpending(%ld, %ld)\n", orig_a0, orig_a1);
+          debug_printf("[%d] Handling rt_sigpending(%ld, %ld)\n", child_pid,
+                       orig_a0, orig_a1);
           // clear higher part of old sigset in sigset(a0)
           if (orig_a0) {
             ptrace(PTRACE_POKEDATA, child_pid, orig_a0 + 8, 0);
@@ -257,24 +278,65 @@ int main(int argc, char *argv[]) {
           regs.regs[5] = 8;
           ptrace(PTRACE_SETREGSET, child_pid, NT_PRSTATUS, &iovec);
         } else if (syscall == __NR_rt_sigtimedwait && orig_a3 == 16) {
-          debug_printf("Handling rt_sigtimedwait(%ld, %ld, %ld, %ld)\n", orig_a0,
-                       orig_a1, orig_a2, orig_a3);
+          debug_printf("[%d] Handling rt_sigtimedwait(%ld, %ld, %ld, %ld)\n",
+                       child_pid, orig_a0, orig_a1, orig_a2, orig_a3);
           // override a3 to 8
           regs.regs[7] = 8;
           ptrace(PTRACE_SETREGSET, child_pid, NT_PRSTATUS, &iovec);
         } else if (syscall == __NR_rt_sigsuspend && orig_a1 == 16) {
-          debug_printf("Handling rt_sigsuspend(%ld, %ld)\n", orig_a0, orig_a1);
+          debug_printf("[%d] Handling rt_sigsuspend(%ld, %ld)\n", child_pid,
+                       orig_a0, orig_a1);
           // override a1 to 8
           regs.regs[5] = 8;
           ptrace(PTRACE_SETREGSET, child_pid, NT_PRSTATUS, &iovec);
+        } else if (syscall == __NR_execve) {
+          if (first_execve) {
+            first_execve = 0;
+          } else {
+            debug_printf("[%d] Handling execve(%ld, %ld, %ld)\n", child_pid,
+                         orig_a0, orig_a1, orig_a2);
+
+            // change the first argument to la_ow_ptrace(a0), and prepend
+            // la_ow_ptrace to argv(a1)
+
+            // copy argv[0] to child
+            char buffer[256] = {0};
+            snprintf(buffer, sizeof(buffer), "%s", argv[0]);
+            ptrace_write(child_pid, mmap_page, buffer, sizeof(buffer));
+
+            // create a new argv array
+            // argv[0]
+            ptrace_write(child_pid, mmap_page + 1024, &mmap_page, 8);
+            // argv[1:]
+            for (int i = 0;; i++) {
+              uint64_t ptr =
+                  ptrace(PTRACE_PEEKDATA, child_pid, orig_a1 + i * 8, 0);
+              ptrace_write(child_pid, mmap_page + 1024 + (i + 1) * 8, &ptr, 8);
+              if (!ptr) {
+                break;
+              }
+            }
+
+            // override a0 to mmap_page, a1 to new argv
+            regs.regs[4] = mmap_page;
+            regs.regs[5] = mmap_page + 1024;
+            ptrace(PTRACE_SETREGSET, child_pid, NT_PRSTATUS, &iovec);
+          }
         }
 
         // trace syscall exit
         ptrace(PTRACE_SYSCALL, child_pid, 0, 0);
         waitpid(child_pid, &status, 0);
+
         // child process exited
-        if (WIFEXITED(status))
-          return WEXITSTATUS(status);
+        if (WIFEXITED(status)) {
+          if (child_pid == first_child_pid) {
+            // propagate exit status
+            return WEXITSTATUS(status);
+          } else {
+            continue;
+          }
+        }
 
         // get result
         ptrace(PTRACE_GETREGSET, child_pid, NT_PRSTATUS, &iovec);
@@ -282,29 +344,31 @@ int main(int argc, char *argv[]) {
 
         // minimal strace
         if (syscall_name_table[syscall]) {
-          debug_printf("Strace: syscall_%s(%ld, %ld, %ld, %ld) = %ld\n",
-                       syscall_name_table[syscall], orig_a0, orig_a1, orig_a2,
-                       orig_a3, result);
+          debug_printf("[%d] Strace: syscall_%s(%ld, %ld, %ld, %ld) = %ld\n",
+                       child_pid, syscall_name_table[syscall], orig_a0, orig_a1,
+                       orig_a2, orig_a3, result);
         } else {
-          debug_printf("Strace: syscall_%ld(%ld, %ld, %ld, %ld) = %ld\n", syscall,
-                       orig_a0, orig_a1, orig_a2, orig_a3, result);
+          debug_printf("[%d] Strace: syscall_%ld(%ld, %ld, %ld, %ld) = %ld\n",
+                       child_pid, syscall, orig_a0, orig_a1, orig_a2, orig_a3,
+                       result);
+        }
+
+        if (!mmap_page) {
+          // create page in child
+          mmap_page = ptrace_syscall(child_pid, syscall_addr, __NR_mmap, 0,
+                                     16384, PROT_READ | PROT_WRITE,
+                                     MAP_PRIVATE | MAP_ANONYMOUS, -1, 0, 0);
+          debug_printf("[%d] Create page for buffer at %lx(%ld)\n", child_pid,
+                       mmap_page, mmap_page);
         }
 
         if (result == -ENOSYS) {
-          debug_printf("Unimplemented syscall by kernel: %ld\n", syscall);
-
-          if (!mmap_page) {
-            // create page in child
-            mmap_page = ptrace_syscall(child_pid, syscall_addr, __NR_mmap, 0,
-                                       16384, PROT_READ | PROT_WRITE,
-                                       MAP_PRIVATE | MAP_ANONYMOUS, -1, 0, 0);
-            debug_printf("Create page for buffer at %lx(%ld)\n", mmap_page,
-                         mmap_page);
-          }
+          debug_printf("[%d] Unimplemented syscall by kernel: %ld\n", child_pid,
+                       syscall);
 
           if (syscall == 79) {
-            debug_printf("Handling newfstatat(%ld, %lx, %lx, %ld)\n", orig_a0,
-                         orig_a1, orig_a2, orig_a3);
+            debug_printf("[%d] Handling newfstatat(%ld, %lx, %lx, %ld)\n",
+                         child_pid, orig_a0, orig_a1, orig_a2, orig_a3);
 
             // implementing syscall via statx
             // statx(fd, path,
@@ -329,7 +393,8 @@ int main(int argc, char *argv[]) {
             regs.regs[4] = result;
             ptrace(PTRACE_SETREGSET, child_pid, NT_PRSTATUS, &iovec);
           } else if (syscall == 80) {
-            debug_printf("Handling fstat(%ld, %lx)\n", orig_a0, orig_a1);
+            debug_printf("[%d] Handling fstat(%ld, %lx)\n", child_pid, orig_a0,
+                         orig_a1);
 
             // zero path argument
             uint64_t zero = 0;
@@ -359,7 +424,7 @@ int main(int argc, char *argv[]) {
           }
         }
       } else {
-        debug_printf("Unknown status %d\n", status);
+        debug_printf("[%d] Unknown status %d\n", child_pid, status);
       }
     }
   }
