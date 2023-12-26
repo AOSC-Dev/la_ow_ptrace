@@ -283,13 +283,14 @@ int main(int argc, char *argv[]) {
                              child_pid, orig_a0, orig_a1, orig_a2, orig_a3);
 
                 // implementing syscall via statx
+                // follow glibc fstatat64_time64_statx
                 // statx(fd, path,
-                // AT_STATX_SYNC_AS_STAT|AT_NO_AUTOMOUNT,
+                // AT_NO_AUTOMOUNT|flag,
                 // STATX_BASIC_STATS, &statx)
-                uint64_t result = ptrace_syscall(
-                    child_pid, syscall_addr, __NR_statx, orig_a0, orig_a1,
-                    AT_STATX_SYNC_AS_STAT | AT_NO_AUTOMOUNT, STATX_BASIC_STATS,
-                    mmap_page, 0, 0);
+                uint64_t result =
+                    ptrace_syscall(child_pid, syscall_addr, __NR_statx, orig_a0,
+                                   orig_a1, AT_NO_AUTOMOUNT | orig_a3,
+                                   STATX_BASIC_STATS, mmap_page, 0, 0);
 
                 if (result == 0) {
                   // success, update buffer from user
