@@ -202,6 +202,7 @@ int main(int argc, char *argv[]) {
         uint64_t orig_a1 = regs.regs[5];
         uint64_t orig_a2 = regs.regs[6];
         uint64_t orig_a3 = regs.regs[7];
+        uint64_t orig_a4 = regs.regs[8];
         // csr_era += 4 in kernel
         uint64_t syscall_addr = regs.csr_era - 4;
 
@@ -250,6 +251,12 @@ int main(int argc, char *argv[]) {
                        orig_a0, orig_a1);
           // override a1 to 8
           regs.regs[5] = 8;
+          ptrace(PTRACE_SETREGSET, child_pid, NT_PRSTATUS, &iovec);
+        } else if (syscall == __NR_ppoll && orig_a4 == 16) {
+          debug_printf("[%d] Handling ppoll(%ld, %ld, %ld, %ld, %ld)\n", child_pid,
+                       orig_a0, orig_a1, orig_a2, orig_a3, orig_a4);
+          // override a4 to 8
+          regs.regs[8] = 8;
           ptrace(PTRACE_SETREGSET, child_pid, NT_PRSTATUS, &iovec);
         } else if (syscall == __NR_execve) {
           // mmap-ed page is invalidated
