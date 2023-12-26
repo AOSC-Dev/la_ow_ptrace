@@ -22,7 +22,8 @@ You can set environment variable `LA_OW_PTRACE_DEBUG=1` to enable debug logs.
 
 - [x] newfstat/newfstatat
 - [x] rt_sigprocmask/rt_sigaction/rt_sigpending/rt_sigtimedwait/rt_sigsuspend
+- [x] pselect6/ppoll
+- [x] epoll_pwait/epoll_pwait2
 - [x] handle child process
+- [x] signalfd4
 - [ ] getrlimit/setrlimit
-- [ ] pselect6/ppoll
-- [ ] epoll_pwait/epoll_pwait2

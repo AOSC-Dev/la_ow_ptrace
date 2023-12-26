@@ -275,16 +275,24 @@ int main(int argc, char *argv[]) {
             revert_pselect6 = true;
           }
         } else if (syscall == __NR_epoll_pwait && orig_a5 == 16) {
-          debug_printf("[%d] Handling epoll_pwait(%ld, %ld, %ld, %ld, %ld, %ld)\n",
-                       child_pid, orig_a0, orig_a1, orig_a2, orig_a3, orig_a4, orig_a5);
+          debug_printf(
+              "[%d] Handling epoll_pwait(%ld, %ld, %ld, %ld, %ld, %ld)\n",
+              child_pid, orig_a0, orig_a1, orig_a2, orig_a3, orig_a4, orig_a5);
           // override a5 to 8
           regs.regs[9] = 8;
           ptrace(PTRACE_SETREGSET, child_pid, NT_PRSTATUS, &iovec);
         } else if (syscall == __NR_epoll_pwait2 && orig_a5 == 16) {
-          debug_printf("[%d] Handling epoll_pwait2(%ld, %ld, %ld, %ld, %ld, %ld)\n",
-                       child_pid, orig_a0, orig_a1, orig_a2, orig_a3, orig_a4, orig_a5);
+          debug_printf(
+              "[%d] Handling epoll_pwait2(%ld, %ld, %ld, %ld, %ld, %ld)\n",
+              child_pid, orig_a0, orig_a1, orig_a2, orig_a3, orig_a4, orig_a5);
           // override a5 to 8
           regs.regs[9] = 8;
+          ptrace(PTRACE_SETREGSET, child_pid, NT_PRSTATUS, &iovec);
+        } else if (syscall == __NR_signalfd4 && orig_a2 == 16) {
+          debug_printf("[%d] Handling signalfd4(%ld, %ld, %ld, %ld)\n",
+                       child_pid, orig_a0, orig_a1, orig_a2, orig_a3);
+          // override a2 to 8
+          regs.regs[6] = 8;
           ptrace(PTRACE_SETREGSET, child_pid, NT_PRSTATUS, &iovec);
         } else if (syscall == __NR_execve) {
           // mmap-ed page is invalidated
