@@ -43,3 +43,9 @@ It intercepts syscall from child process. When it met unimplemented old-world-on
 1. Install libLOL from AOSC OS
 2. Install Lbrowser dpkg
 3. Run Lbrowser with `la_ow`: `./la_ow /opt/apps/lbrowser/lbrowser`
+
+## How to run VSCodium
+
+1. Install libLOL from AOSC OS
+2. Install VSCodium dpkg fron loongnix.cn
+3. Run Lbrowser with `la_ow`: `./la_ow /usr/share/codium/codium`
