@@ -122,6 +122,8 @@ struct stat convert_statx_to_stat(struct statx statx) {
   return stat;
 }
 
+#define MMAP_PAGE_SIZE (16384 * 4)
+
 // record the state of each tracee
 struct trace_state {
   // buffer in child process
@@ -264,10 +266,10 @@ int main(int argc, char *argv[]) {
 
             if (!cur.mmap_page && syscall != __NR_execve) {
               // create page in child
-              uint64_t mmap_page =
-                  ptrace_syscall(child_pid, syscall_addr, __NR_mmap, 0,
-                                 16384 * 4, PROT_READ | PROT_WRITE | PROT_EXEC,
-                                 MAP_PRIVATE | MAP_ANONYMOUS, -1, 0, 0);
+              uint64_t mmap_page = ptrace_syscall(
+                  child_pid, syscall_addr, __NR_mmap, 0, MMAP_PAGE_SIZE,
+                  PROT_READ | PROT_WRITE | PROT_EXEC,
+                  MAP_PRIVATE | MAP_ANONYMOUS, -1, 0, 0);
               debug_printf("[%d] Create page for buffer at %lx(%ld)\n",
                            child_pid, mmap_page, mmap_page);
               cur.mmap_page = mmap_page;
@@ -339,21 +341,42 @@ int main(int argc, char *argv[]) {
               }
             }
 
-            if (syscall == __NR_rt_sigaction && orig_a2) {
+            if (syscall == __NR_rt_sigaction) {
               // check if we need to recover original sigaction handler
-              uint64_t handler = ptrace(PTRACE_PEEKDATA, child_pid, orig_a2, 0);
-              if (cur.mmap_page <= handler &&
-                  handler <= cur.mmap_page + 16384) {
-                // in our page!
+              if (orig_a2) {
+                uint64_t handler =
+                    ptrace(PTRACE_PEEKDATA, child_pid, orig_a2, 0);
+                if (cur.mmap_page <= handler &&
+                    handler <= cur.mmap_page + MMAP_PAGE_SIZE) {
+                  // in our page!
 
-                // read back real address
-                uint64_t real_handler =
-                    ptrace(PTRACE_PEEKDATA, child_pid, handler + 76 * 4, 0);
+                  // read back real address
+                  uint64_t real_handler =
+                      ptrace(PTRACE_PEEKDATA, child_pid, handler + 76 * 4, 0);
 
-                debug_printf("[%d] Fixing old sigaction: %lx to %lx\n",
-                             child_pid, handler, real_handler);
-                // fix it
-                ptrace(PTRACE_POKEDATA, child_pid, orig_a1, real_handler);
+                  debug_printf("[%d] Fixing old sigaction: %lx to %lx\n",
+                               child_pid, handler, real_handler);
+                  // fix it
+                  ptrace(PTRACE_POKEDATA, child_pid, orig_a2, real_handler);
+                }
+              }
+
+              if (orig_a1) {
+                uint64_t handler =
+                    ptrace(PTRACE_PEEKDATA, child_pid, orig_a1, 0);
+                if (cur.mmap_page <= handler &&
+                    handler <= cur.mmap_page + MMAP_PAGE_SIZE) {
+                  // in our page!
+
+                  // read back real address
+                  uint64_t real_handler =
+                      ptrace(PTRACE_PEEKDATA, child_pid, handler + 76 * 4, 0);
+
+                  debug_printf("[%d] Fixing old sigaction: %lx to %lx\n",
+                               child_pid, handler, real_handler);
+                  // fix it
+                  ptrace(PTRACE_POKEDATA, child_pid, orig_a1, real_handler);
+                }
               }
             }
           } else {
