@@ -676,6 +676,10 @@ int main(int argc, char *argv[]) {
           debug_printf("[%d] Child got SIGINT\n", child_pid);
           inject_signal = SIGINT;
           continue;
+        } else if ((status >> 8) == SIGABRT) {
+          debug_printf("[%d] Child got SIGABRT\n", child_pid);
+          inject_signal = SIGABRT;
+          continue;
         } else if ((status >> 8) == SIGWINCH) {
           debug_printf("[%d] Child got SIGWINCH\n", child_pid);
           inject_signal = SIGWINCH;
