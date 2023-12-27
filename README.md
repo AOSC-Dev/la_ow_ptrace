@@ -18,20 +18,6 @@ make
 
 You can set environment variable `LA_OW_PTRACE_DEBUG=1` to enable debug logs.
 
-## How does it work
-
-It intercepts syscall from child process. When it met unimplemented old-world-only syscall, it calls the equivalent new-world syscall in child process and converts the result. For syscall where sigset is used, the size is changed from 16 to 8. It generates code for sigaction handler to accomodate the difference in `struct mcontext_t`.
-
-## Progress
-
-- [x] newfstat/newfstatat
-- [x] rt_sigprocmask/rt_sigaction/rt_sigpending/rt_sigtimedwait/rt_sigsuspend
-- [x] pselect6/ppoll
-- [x] epoll_pwait/epoll_pwait2
-- [x] handle child process
-- [x] signalfd4
-- [ ] getrlimit/setrlimit
-
 ## How to run WPS
 
 1. Install libLOL from AOSC OS
@@ -55,3 +41,17 @@ It intercepts syscall from child process. When it met unimplemented old-world-on
 1. Install libLOL from AOSC OS
 2. Install Linux QQ dpkg from im.qq.com
 3. Run Lbrowser with `la_ow`: `./la_ow /opt/QQ/qq`
+
+## How does it work
+
+It intercepts syscall from child process. When it met unimplemented old-world-only syscall, it calls the equivalent new-world syscall in child process and converts the result. For syscall where sigset is used, the size is changed from 16 to 8. It generates code for sigaction handler to accomodate the difference in `struct mcontext_t`.
+
+## Progress
+
+- [x] newfstat/newfstatat
+- [x] rt_sigprocmask/rt_sigaction/rt_sigpending/rt_sigtimedwait/rt_sigsuspend
+- [x] pselect6/ppoll
+- [x] epoll_pwait/epoll_pwait2
+- [x] handle child process
+- [x] signalfd4
+- [ ] getrlimit/setrlimit: seems unneeded?
