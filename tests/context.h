@@ -6,6 +6,9 @@
 
 // /usr/include/loongarch64-linux-gnu/bits/sigcontext.h
 
+#define FPU_REG_WIDTH 256
+#define FPU_ALIGN __attribute__((aligned(32)))
+
 struct sigcontext {
   unsigned long long sc_pc;
   unsigned long long sc_regs[32];
