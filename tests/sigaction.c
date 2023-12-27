@@ -54,15 +54,19 @@ void signal_handler(int sig, siginfo_t *siginfo, void *ucontext) {
   }
 #else
   // old world
+  // there is a mismatch between sigcontext and mcontext with regard to sc_scr!?
+  struct sigcontext *sc = (struct sigcontext *)&uc->uc_mcontext;
   printf("ucontext->uc_mcontext.__fcsr = %d\n", uc->uc_mcontext.__fcsr);
   printf("ucontext->uc_mcontext.__vcsr = %d\n", uc->uc_mcontext.__vcsr);
   printf("ucontext->uc_mcontext.__fcc = %lld\n", uc->uc_mcontext.__fcc);
+
+  // different!
+  for (int i = 0; i < 4; i++)
+    printf("ucontext->uc_mcontext.__scr[%d] = %lld\n", i, sc->sc_scr[i]);
   for (int i = 0; i < 32; i++)
     printf("ucontext->uc_mcontext.__fpregs[%d].__val64 = %llx %llx %llx %llx\n",
-           i, uc->uc_mcontext.__fpregs[i].__val64[0],
-           uc->uc_mcontext.__fpregs[i].__val64[1],
-           uc->uc_mcontext.__fpregs[i].__val64[2],
-           uc->uc_mcontext.__fpregs[i].__val64[3]);
+           i, sc->sc_fpregs[i].val64[0], sc->sc_fpregs[i].val64[1],
+           sc->sc_fpregs[i].val64[2], sc->sc_fpregs[i].val64[3]);
   printf("ucontext->uc_mcontext.__reserved = %lld\n",
          uc->uc_mcontext.__reserved);
 #endif
@@ -106,5 +110,16 @@ int main() {
   register double f31 asm("f31") = 31.0;
 
   kill(getpid(), SIGUSR1);
+
+  printf("f0=%f\n", f0);
+  printf("f1=%f\n", f1);
+  printf("f2=%f\n", f2);
+  printf("f3=%f\n", f3);
+  printf("f4=%f\n", f4);
+  printf("f5=%f\n", f5);
+  printf("f6=%f\n", f6);
+  printf("f7=%f\n", f7);
+  printf("f30=%f\n", f30);
+  printf("f31=%f\n", f31);
   return 0;
 }
