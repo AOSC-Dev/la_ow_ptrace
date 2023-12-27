@@ -16,6 +16,7 @@ void signal_handler(int sig, siginfo_t *siginfo, void *ucontext) {
 
   printf("siginfo->si_signo = %d\n", siginfo->si_signo);
   printf("siginfo->si_code = %d\n", siginfo->si_code);
+  printf("siginfo->si_errno = %d\n", siginfo->si_errno);
   printf("siginfo->si_pid = %d\n", siginfo->si_pid);
   printf("siginfo->si_uid = %d\n", siginfo->si_uid);
   printf("siginfo->si_addr = %p\n", siginfo->si_addr);
@@ -35,6 +36,12 @@ void signal_handler(int sig, siginfo_t *siginfo, void *ucontext) {
     printf("ucontext->uc_mcontext.__gregs[%d] = %lx\n", i,
            uc->uc_mcontext.__gregs[i]);
   printf("ucontext->uc_mcontext.__flags = %ld\n", uc->uc_mcontext.__flags);
+
+  struct sctx_info *sctx = (struct sctx_info *)uc->uc_mcontext.__extcontext;
+  while (sctx->magic != 0) {
+    printf("sctx entry: magic=0x%lx, size=%d\n", sctx->magic, sctx->size);
+    sctx = (struct sctx_info *)((uint8_t *)sctx + sctx->size);
+  }
 }
 
 int main() {
