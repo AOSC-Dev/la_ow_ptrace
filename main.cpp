@@ -688,11 +688,6 @@ int main(int argc, char *argv[]) {
         } else if ((status >> 8) == SIGBUS) {
           debug_printf("[%d] Child got SIGBUS\n", child_pid);
           inject_signal = SIGBUS;
-          struct user_regs_struct regs = {0};
-          struct iovec iovec = {.iov_base = &regs, .iov_len = sizeof(regs)};
-          assert(ptrace(PTRACE_GETREGSET, child_pid, NT_PRSTATUS, &iovec) == 0);
-          debug_printf("era=%llx ra=%llx a3=%llx\n", regs.csr_era, regs.regs[1],
-                       regs.regs[7]);
           continue;
         }
       }
