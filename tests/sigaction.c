@@ -41,6 +41,15 @@ void signal_handler(int sig, siginfo_t *siginfo, void *ucontext) {
   struct sctx_info *sctx = (struct sctx_info *)uc->uc_mcontext.__extcontext;
   while (sctx->magic != 0) {
     printf("sctx entry: magic=0x%x, size=%d\n", sctx->magic, sctx->size);
+    if (sctx->magic == LASX_CTX_MAGIC) {
+      struct lasx_context *ctx = (struct lasx_context *)((uint8_t *)sctx + 8);
+      for (int i = 0; i < 32; i++)
+        printf("lasx_context[%d] = %llx %llx %llx %llx\n", i, ctx->regs[4 * i],
+               ctx->regs[4 * i + 1], ctx->regs[4 * i + 2],
+               ctx->regs[4 * i + 3]);
+      printf("fcc = %lld\n", ctx->fcc);
+      printf("fcsr = %d\n", ctx->fcsr);
+    }
     sctx = (struct sctx_info *)((uint8_t *)sctx + sctx->size);
   }
 #else
@@ -49,8 +58,13 @@ void signal_handler(int sig, siginfo_t *siginfo, void *ucontext) {
   printf("ucontext->uc_mcontext.__vcsr = %d\n", uc->uc_mcontext.__vcsr);
   printf("ucontext->uc_mcontext.__fcc = %lld\n", uc->uc_mcontext.__fcc);
   for (int i = 0; i < 32; i++)
-    printf("ucontext->uc_mcontext.__fpregs[i].__val64 = %lld\n",
-           uc->uc_mcontext.__fpregs[i].__val64);
+    printf("ucontext->uc_mcontext.__fpregs[%d].__val64 = %llx %llx %llx %llx\n",
+           i, uc->uc_mcontext.__fpregs[i].__val64[0],
+           uc->uc_mcontext.__fpregs[i].__val64[1],
+           uc->uc_mcontext.__fpregs[i].__val64[2],
+           uc->uc_mcontext.__fpregs[i].__val64[3]);
+  printf("ucontext->uc_mcontext.__reserved = %lld\n",
+         uc->uc_mcontext.__reserved);
 #endif
 }
 
@@ -61,6 +75,36 @@ int main() {
   new_act.sa_flags = SA_SIGINFO;
   new_act.sa_sigaction = signal_handler;
   sigaction(SIGUSR1, &new_act, &old_act);
+
+  // setup some registers, hopefully they appear in ucontext
+  register int s0 asm("s0") = 0x11111111;
+  register int s1 asm("s1") = 0x22222222;
+  register int s2 asm("s2") = 0x33333333;
+  register int s3 asm("s3") = 0x44444444;
+  register int s4 asm("s4") = 0x55555555;
+  register int s5 asm("s5") = 0x66666666;
+  register int s6 asm("s6") = 0x77777777;
+  register int s7 asm("s7") = 0x88888888;
+  register int s8 asm("s8") = 0x99999999;
+
+  // activate lasx
+  asm volatile("xvldi $xr0, 0");
+
+  register double f0 asm("f0") = 0.0;
+  register double f1 asm("f1") = 1.0;
+  register double f2 asm("f2") = 2.0;
+  register double f3 asm("f3") = 3.0;
+  register double f4 asm("f4") = 4.0;
+  register double f5 asm("f5") = 5.0;
+  register double f6 asm("f6") = 6.0;
+  register double f7 asm("f7") = 7.0;
+  register double f8 asm("f8") = 8.0;
+  register double f9 asm("f9") = 9.0;
+  register double f28 asm("f28") = 28.0;
+  register double f29 asm("f29") = 29.0;
+  register double f30 asm("f30") = 30.0;
+  register double f31 asm("f31") = 31.0;
+
   kill(getpid(), SIGUSR1);
   return 0;
 }

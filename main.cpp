@@ -480,6 +480,10 @@ int main(int argc, char *argv[]) {
           debug_printf("[%d] Child got SIGWINCH\n", child_pid);
           inject_signal = SIGWINCH;
           continue;
+        } else if ((status >> 8) == SIGUSR1) {
+          debug_printf("[%d] Child got SIGUSR1\n", child_pid);
+          inject_signal = SIGUSR1;
+          continue;
         }
       }
 
