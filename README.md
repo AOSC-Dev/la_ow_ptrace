@@ -20,7 +20,7 @@ You can set environment variable `LA_OW_PTRACE_DEBUG=1` to enable debug logs.
 
 ## How does it work
 
-It intercepts syscall from child process. When it met unimplemented old-world-only syscall, it calls the equivalent new-work syscall in child process and converts the result. For syscall where sigset is used, the size is changed from 16 to 8.
+It intercepts syscall from child process. When it met unimplemented old-world-only syscall, it calls the equivalent new-world syscall in child process and converts the result. For syscall where sigset is used, the size is changed from 16 to 8. It generates code for sigaction handler to accomodate the difference in `struct mcontext_t`.
 
 ## Progress
 
