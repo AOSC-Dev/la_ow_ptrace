@@ -79,9 +79,10 @@ int main() {
   memset(&new_act, 0, sizeof(new_act));
   new_act.sa_flags = SA_SIGINFO;
   new_act.sa_sigaction = signal_handler;
-  printf("before: signal handler is %p\n", new_act.sa_sigaction);
+  printf("signal handler is %p\n", new_act.sa_sigaction);
+  printf("&sa_sigaction is %p\n", &new_act.sa_sigaction);
+  printf("&sa_flags is %p\n", &new_act.sa_flags);
   sigaction(SIGUSR1, &new_act, &old_act);
-  printf("after: signal handler is %p\n", new_act.sa_sigaction);
 
   // setup some registers, hopefully they appear in ucontext
   register int s0 asm("s0") = 0x11111111;

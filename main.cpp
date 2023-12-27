@@ -265,8 +265,8 @@ int main(int argc, char *argv[]) {
             if (!cur.mmap_page && syscall != __NR_execve) {
               // create page in child
               uint64_t mmap_page =
-                  ptrace_syscall(child_pid, syscall_addr, __NR_mmap, 0, 16384,
-                                 PROT_READ | PROT_WRITE | PROT_EXEC,
+                  ptrace_syscall(child_pid, syscall_addr, __NR_mmap, 0,
+                                 16384 * 4, PROT_READ | PROT_WRITE | PROT_EXEC,
                                  MAP_PRIVATE | MAP_ANONYMOUS, -1, 0, 0);
               debug_printf("[%d] Create page for buffer at %lx(%ld)\n",
                            child_pid, mmap_page, mmap_page);
@@ -382,9 +382,13 @@ int main(int argc, char *argv[]) {
                 // find user's real sigaction handler
                 uint64_t sigaction =
                     ptrace(PTRACE_PEEKDATA, child_pid, orig_a1, 0);
+                // the kernel organization of sigaction is different from user
                 uint64_t sa_flags =
-                    ptrace(PTRACE_PEEKDATA, child_pid,
-                           orig_a1 + offsetof(struct sigaction, sa_flags), 0);
+                    ptrace(PTRACE_PEEKDATA, child_pid, orig_a1 + 8, 0);
+                assert(errno == 0);
+                debug_printf(
+                    "[%d] Got sigaction handler at %lx, sa_flags %lx\n",
+                    child_pid, sigaction, sa_flags);
                 if (sigaction && (sa_flags & SA_SIGINFO)) {
                   // generate wrapper for sigaction handler
                   // see signal_handler.s
