@@ -541,9 +541,6 @@ int main(int argc, char *argv[]) {
                   code[4] |= (offset & 0xFFFF) << 10;
                   // offs[25:16]
                   code[4] |= (offset >> 16) & 0x3FF;
-                  // for (int i = 0;i < 5;i++) {
-                  //   printf("%08x\n", code[i]);
-                  // }
 
                   // save absolute address
                   code[6] = sigaction;
