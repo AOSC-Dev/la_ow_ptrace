@@ -338,6 +338,24 @@ int main(int argc, char *argv[]) {
                 ptrace(PTRACE_SETREGSET, child_pid, NT_PRSTATUS, &iovec);
               }
             }
+
+            if (syscall == __NR_rt_sigaction && orig_a2) {
+              // check if we need to recover original sigaction handler
+              uint64_t handler = ptrace(PTRACE_PEEKDATA, child_pid, orig_a2, 0);
+              if (cur.mmap_page <= handler &&
+                  handler <= cur.mmap_page + 16384) {
+                // in our page!
+
+                // read back real address
+                uint64_t real_handler =
+                    ptrace(PTRACE_PEEKDATA, child_pid, handler + 76 * 4, 0);
+
+                debug_printf("[%d] Fixing old sigaction: %lx to %lx\n",
+                             child_pid, handler, real_handler);
+                // fix it
+                ptrace(PTRACE_POKEDATA, child_pid, orig_a1, real_handler);
+              }
+            }
           } else {
             // syscall enter
             // sizeof(sigset_t) is different: 8 vs 16
@@ -364,7 +382,10 @@ int main(int argc, char *argv[]) {
                 // find user's real sigaction handler
                 uint64_t sigaction =
                     ptrace(PTRACE_PEEKDATA, child_pid, orig_a1, 0);
-                if (sigaction) {
+                uint64_t sa_flags =
+                    ptrace(PTRACE_PEEKDATA, child_pid,
+                           orig_a1 + offsetof(struct sigaction, sa_flags), 0);
+                if (sigaction && (sa_flags & SA_SIGINFO)) {
                   // generate wrapper for sigaction handler
                   // see signal_handler.s
                   uint32_t code[] = {
@@ -452,8 +473,10 @@ int main(int argc, char *argv[]) {
                       0x28d6c079, // 	ld.d        	$s2, $sp, 1456
                       0x02d74063, // 	addi.d      	$sp, $sp, 1488
                       0x4c000020, // 	ret
-                      0x00000000  // padding
-                  };
+                      0x00000000, // padding
+
+                      // save absolute address here for easy recovery
+                      0x000000000, 0x000000000};
 
                   // fill address into assembly
                   // lu12i.w
@@ -469,8 +492,13 @@ int main(int argc, char *argv[]) {
                   uint64_t abs64_hi12 = sigaction >> 52;
                   code[42] |= abs64_hi12 << 10;
 
+                  // save absolute address
+                  code[76] = sigaction;
+                  code[77] = sigaction >> 32;
+
                   // copy code to somewhere in mmap_page
-                  uint64_t fake_signal_handler = cur.mmap_page + 4096;
+                  uint64_t fake_signal_handler =
+                      cur.mmap_page + 4096 + 512 * orig_a0;
                   ptrace_write(child_pid, fake_signal_handler, code,
                                sizeof(code));
 
