@@ -1,7 +1,7 @@
 #include <signal.h>
 #include <sys/ucontext.h>
 
-extern void real_signal_handler(int sig, siginfo_t *siginfo, void *ucontext);
+void (*real_signal_handler)(int sig, siginfo_t *siginfo, void *ucontext);
 
 struct ow_sigset_t {
   unsigned long sig[2];

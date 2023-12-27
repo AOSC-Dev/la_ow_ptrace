@@ -12,7 +12,7 @@ void signal_handler(int sig, siginfo_t *siginfo, void *ucontext) {
   printf("ucontext = %p\n", ucontext);
   uint64_t sp;
   asm volatile("move %0, $sp" : "=r"(sp));
-  printf("sp = %ld\n", sp);
+  printf("sp = %lx\n", sp);
 
   printf("siginfo->si_signo = %d\n", siginfo->si_signo);
   printf("siginfo->si_code = %d\n", siginfo->si_code);
@@ -79,7 +79,9 @@ int main() {
   memset(&new_act, 0, sizeof(new_act));
   new_act.sa_flags = SA_SIGINFO;
   new_act.sa_sigaction = signal_handler;
+  printf("before: signal handler is %p\n", new_act.sa_sigaction);
   sigaction(SIGUSR1, &new_act, &old_act);
+  printf("after: signal handler is %p\n", new_act.sa_sigaction);
 
   // setup some registers, hopefully they appear in ucontext
   register int s0 asm("s0") = 0x11111111;
