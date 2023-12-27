@@ -1,8 +1,6 @@
 #include <signal.h>
 #include <sys/ucontext.h>
 
-void (*real_signal_handler)(int sig, siginfo_t *siginfo, void *ucontext);
-
 struct ow_sigset_t {
   unsigned long sig[2];
 };
@@ -30,7 +28,7 @@ struct ow_ucontext_t {
   struct ow_sigset_t sigmask;
 };
 
-void signal_handler(int sig, siginfo_t *siginfo, void *ucontext) {
+void signal_handler(int sig, siginfo_t *siginfo, void *ucontext, void (*real_signal_handler)(int sig, siginfo_t *siginfo, void *ucontext)) {
   ucontext_t *uc = (ucontext_t *)ucontext;
   struct ow_ucontext_t ow_uc;
 

@@ -41,14 +41,8 @@ signal_handler:
 	bne	$r12,$r15,.L2
 	ldptr.w	$r12,$r25,440
 	st.w	$r12,$r23,328
-	# pcalau12i	$r12,%pc_hi20(.LANCHOR0)
-	# ld.d	$r12,$r12,%pc_lo12(.LANCHOR0)
-	lu12i.w	$r12, %abs_hi20(.real_signal_handler)
-	ori $r12, $r12, %abs_lo12(.real_signal_handler)
-	lu32i.d $r12, %abs64_lo20(.real_signal_handler)
-	lu52i.d $r12, $r12, %abs64_hi12(.real_signal_handler)
 	or	$r6,$r23,$r0
-	jirl	$r1,$r12,0
+	jirl	$r1,$r7,0
 	ldptr.d	$r12,$r23,0
 	stptr.d	$r12,$r25,0
 	st.d	$r0,$r25,8
@@ -81,5 +75,12 @@ signal_handler:
 	addi.d	$r3,$r3,1488
 	jr	$r1
 
+	# trampoline
+trampoline:
+	lu12i.w	$r7, %abs_hi20(.real_signal_handler)
+	ori $r7, $r7, %abs_lo12(.real_signal_handler)
+	lu32i.d $r7, %abs64_lo20(.real_signal_handler)
+	lu52i.d $r7, $r7, %abs64_hi12(.real_signal_handler)
+	b .real_signal_handler
+
 .real_signal_handler:
-	.space	8

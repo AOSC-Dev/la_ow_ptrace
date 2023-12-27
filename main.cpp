@@ -273,6 +273,92 @@ int main(int argc, char *argv[]) {
               debug_printf("[%d] Create page for buffer at %lx(%ld)\n",
                            child_pid, mmap_page, mmap_page);
               cur.mmap_page = mmap_page;
+
+              // signal trampoline
+              // see signal_handler.s
+              uint32_t code[] = {
+                  0x02e8c063, // 	addi.d      	$sp, $sp, -1488
+                  0x29d72061, // 	st.d        	$ra, $sp, 1480
+                  0x29d70077, // 	st.d        	$s0, $sp, 1472
+                  0x29d6e078, // 	st.d        	$s1, $sp, 1464
+                  0x29d6c079, // 	st.d        	$s2, $sp, 1456
+                  0x15ffffed, // 	lu12i.w     	$t1, -1
+                  0x0010b463, // 	add.d       	$sp, $sp, $t1
+                  0x001500d9, // 	move        	$s2, $a2
+                  0x15ffffd7, // 	lu12i.w     	$s0, -2
+                  0x03a9bef7, // 	ori         	$s0, $s0, 0xa6f
+                  0x1400002c, // 	lu12i.w     	$t0, 1
+                  0x0396c18c, // 	ori         	$t0, $t0, 0x5b0
+                  0x0010dd8c, // 	add.d       	$t0, $t0, $s0
+                  0x00108d97, // 	add.d       	$s0, $t0, $sp
+                  0x004516f7, // 	srli.d      	$s0, $s0, 0x5
+                  0x004116f7, // 	slli.d      	$s0, $s0, 0x5
+                  0x260000cc, // 	ldptr.d     	$t0, $a2, 0
+                  0x270002ec, // 	stptr.d     	$t0, $s0, 0
+                  0x29c022e0, // 	st.d        	$zero, $s0, 8
+                  0x28c040cc, // 	ld.d        	$t0, $a2, 16
+                  0x29c042ec, // 	st.d        	$t0, $s0, 16
+                  0x28c060cc, // 	ld.d        	$t0, $a2, 24
+                  0x29c062ec, // 	st.d        	$t0, $s0, 24
+                  0x28c080cc, // 	ld.d        	$t0, $a2, 32
+                  0x29c082ec, // 	st.d        	$t0, $s0, 32
+                  0x28c0a0cc, // 	ld.d        	$t0, $a2, 40
+                  0x271582ec, // 	stptr.d     	$t0, $s0, 5504
+                  0x28c2c0cc, // 	ld.d        	$t0, $a2, 176
+                  0x29c102ec, // 	st.d        	$t0, $s0, 64
+                  0x0015000c, // 	move        	$t0, $zero
+                  0x02c2e0d8, // 	addi.d      	$s1, $a2, 184
+                  0x0284000f, // 	li.w        	$t3, 256
+
+                  // .L2
+                  0x0010b2ed, // 	add.d       	$t1, $s0, $t0
+                  0x380c330e, // 	ldx.d       	$t2, $s1, $t0
+                  0x29c121ae, // 	st.d        	$t2, $t1, 72
+                  0x02c0218c, // 	addi.d      	$t0, $t0, 8
+                  0x5ffff18f, // 	bne         	$t0, $t3, -16	# 80
+
+                  0x2401bb2c, // 	ldptr.w     	$t0, $s2, 440
+                  0x298522ec, // 	st.w        	$t0, $s0, 328
+                  0x001502e6, // 	move        	$a2, $s0
+                  0x4c0000e1, // 	jirl        	$ra, $a3, 0
+                  0x260002ec, // 	ldptr.d     	$t0, $s0, 0
+                  0x2700032c, // 	stptr.d     	$t0, $s2, 0
+                  0x29c02320, // 	st.d        	$zero, $s2, 8
+                  0x28c042ec, // 	ld.d        	$t0, $s0, 16
+                  0x29c0432c, // 	st.d        	$t0, $s2, 16
+                  0x28c062ec, // 	ld.d        	$t0, $s0, 24
+                  0x29c0632c, // 	st.d        	$t0, $s2, 24
+                  0x28c082ec, // 	ld.d        	$t0, $s0, 32
+                  0x29c0832c, // 	st.d        	$t0, $s2, 32
+                  0x261582ec, // 	ldptr.d     	$t0, $s0, 5504
+                  0x29c0a32c, // 	st.d        	$t0, $s2, 40
+                  0x28c102ec, // 	ld.d        	$t0, $s0, 64
+                  0x29c2c32c, // 	st.d        	$t0, $s2, 176
+                  0x0015000c, // 	move        	$t0, $zero
+                  0x0284000e, // 	li.w        	$t2, 256
+
+                  // .L3
+                  0x0010b2ed, // 	add.d       	$t1, $s0, $t0
+                  0x28c121ad, // 	ld.d        	$t1, $t1, 72
+                  0x381c330d, // 	stx.d       	$t1, $s1, $t0
+                  0x02c0218c, // 	addi.d      	$t0, $t0, 8
+                  0x5ffff18e, // 	bne         	$t0, $t2, -16	# f0
+
+                  0x24014aec, // 	ldptr.w     	$t0, $s0, 328
+                  0x2986e32c, // 	st.w        	$t0, $s2, 440
+                  0x1400002d, // 	lu12i.w     	$t1, 1
+                  0x0010b463, // 	add.d       	$sp, $sp, $t1
+                  0x28d72061, // 	ld.d        	$ra, $sp, 1480
+                  0x28d70077, // 	ld.d        	$s0, $sp, 1472
+                  0x28d6e078, // 	ld.d        	$s1, $sp, 1464
+                  0x28d6c079, // 	ld.d        	$s2, $sp, 1456
+                  0x02d74063, // 	addi.d      	$sp, $sp, 1488
+                  0x4c000020, // 	ret
+                  0x00000000, // padding
+              };
+
+              uint64_t fake_signal_handler = cur.mmap_page + 4096;
+              ptrace_write(child_pid, fake_signal_handler, code, sizeof(code));
             }
 
             if (result == -ENOSYS) {
@@ -352,7 +438,7 @@ int main(int argc, char *argv[]) {
 
                   // read back real address
                   uint64_t real_handler =
-                      ptrace(PTRACE_PEEKDATA, child_pid, handler + 76 * 4, 0);
+                      ptrace(PTRACE_PEEKDATA, child_pid, handler + 6 * 4, 0);
 
                   debug_printf("[%d] Fixing old sigaction: %lx to %lx\n",
                                child_pid, handler, real_handler);
@@ -370,7 +456,7 @@ int main(int argc, char *argv[]) {
 
                   // read back real address
                   uint64_t real_handler =
-                      ptrace(PTRACE_PEEKDATA, child_pid, handler + 76 * 4, 0);
+                      ptrace(PTRACE_PEEKDATA, child_pid, handler + 6 * 4, 0);
 
                   debug_printf("[%d] Fixing old sigaction: %lx to %lx\n",
                                child_pid, handler, real_handler);
@@ -413,119 +499,57 @@ int main(int argc, char *argv[]) {
                     "[%d] Got sigaction handler at %lx, sa_flags %lx\n",
                     child_pid, sigaction, sa_flags);
                 if (sigaction && (sa_flags & SA_SIGINFO)) {
+                  // small wrapper for signal_handler
+                  // set a3 to real signal handler address
                   // generate wrapper for sigaction handler
                   // see signal_handler.s
                   uint32_t code[] = {
-                      0x02e8c063, // 	addi.d      	$sp, $sp, -1488
-                      0x29d72061, // 	st.d        	$ra, $sp, 1480
-                      0x29d70077, // 	st.d        	$s0, $sp, 1472
-                      0x29d6e078, // 	st.d        	$s1, $sp, 1464
-                      0x29d6c079, // 	st.d        	$s2, $sp, 1456
-                      0x15ffffed, // 	lu12i.w     	$t1, -1
-                      0x0010b463, // 	add.d       	$sp, $sp, $t1
-                      0x001500d9, // 	move        	$s2, $a2
-                      0x15ffffd7, // 	lu12i.w     	$s0, -2
-                      0x03a9bef7, // 	ori         	$s0, $s0, 0xa6f
-                      0x1400002c, // 	lu12i.w     	$t0, 1
-                      0x0396c18c, // 	ori         	$t0, $t0, 0x5b0
-                      0x0010dd8c, // 	add.d       	$t0, $t0, $s0
-                      0x00108d97, // 	add.d       	$s0, $t0, $sp
-                      0x004516f7, // 	srli.d      	$s0, $s0, 0x5
-                      0x004116f7, // 	slli.d      	$s0, $s0, 0x5
-                      0x260000cc, // 	ldptr.d     	$t0, $a2, 0
-                      0x270002ec, // 	stptr.d     	$t0, $s0, 0
-                      0x29c022e0, // 	st.d        	$zero, $s0, 8
-                      0x28c040cc, // 	ld.d        	$t0, $a2, 16
-                      0x29c042ec, // 	st.d        	$t0, $s0, 16
-                      0x28c060cc, // 	ld.d        	$t0, $a2, 24
-                      0x29c062ec, // 	st.d        	$t0, $s0, 24
-                      0x28c080cc, // 	ld.d        	$t0, $a2, 32
-                      0x29c082ec, // 	st.d        	$t0, $s0, 32
-                      0x28c0a0cc, // 	ld.d        	$t0, $a2, 40
-                      0x271582ec, // 	stptr.d     	$t0, $s0, 5504
-                      0x28c2c0cc, // 	ld.d        	$t0, $a2, 176
-                      0x29c102ec, // 	st.d        	$t0, $s0, 64
-                      0x0015000c, // 	move        	$t0, $zero
-                      0x02c2e0d8, // 	addi.d      	$s1, $a2, 184
-                      0x0284000f, // 	li.w        	$t3, 256
-
-                      // .L2
-                      0x0010b2ed, // 	add.d       	$t1, $s0, $t0
-                      0x380c330e, // 	ldx.d       	$t2, $s1, $t0
-                      0x29c121ae, // 	st.d        	$t2, $t1, 72
-                      0x02c0218c, // 	addi.d      	$t0, $t0, 8
-                      0x5ffff18f, // 	bne         	$t0, $t3, -16	# 80
-
-                      0x2401bb2c, // 	ldptr.w     	$t0, $s2, 440
-                      0x298522ec, // 	st.w        	$t0, $s0, 328
-
                       // load real signal handler address
-                      0x1400000c, // 	lu12i.w     	$t0, 0
-                      0x0380018c, // 	ori         	$t0, $t0, 0x0
-                      0x1600000c, // 	lu32i.d     	$t0, 0
-                      0x0300018c, // 	lu52i.d     	$t0, $t0, 0
+                      0x14000007, //  lu12i.w      $a3, 0
+                      0x038000e7, //  ori          $a3, $a3, 0x0
+                      0x16000007, //  lu32i.d      $a3, 0
+                      0x030000e7, //  lu52i.d      $a3, $a3, 0
 
-                      0x001502e6, // 	move        	$a2, $s0
-                      0x4c000181, // 	jirl        	$ra, $t0, 0
-                      0x260002ec, // 	ldptr.d     	$t0, $s0, 0
-                      0x2700032c, // 	stptr.d     	$t0, $s2, 0
-                      0x29c02320, // 	st.d        	$zero, $s2, 8
-                      0x28c042ec, // 	ld.d        	$t0, $s0, 16
-                      0x29c0432c, // 	st.d        	$t0, $s2, 16
-                      0x28c062ec, // 	ld.d        	$t0, $s0, 24
-                      0x29c0632c, // 	st.d        	$t0, $s2, 24
-                      0x28c082ec, // 	ld.d        	$t0, $s0, 32
-                      0x29c0832c, // 	st.d        	$t0, $s2, 32
-                      0x261582ec, // 	ldptr.d     	$t0, $s0, 5504
-                      0x29c0a32c, // 	st.d        	$t0, $s2, 40
-                      0x28c102ec, // 	ld.d        	$t0, $s0, 64
-                      0x29c2c32c, // 	st.d        	$t0, $s2, 176
-                      0x0015000c, // 	move        	$t0, $zero
-                      0x0284000e, // 	li.w        	$t2, 256
-
-                      // .L3
-                      0x0010b2ed, // 	add.d       	$t1, $s0, $t0
-                      0x28c121ad, // 	ld.d        	$t1, $t1, 72
-                      0x381c330d, // 	stx.d       	$t1, $s1, $t0
-                      0x02c0218c, // 	addi.d      	$t0, $t0, 8
-                      0x5ffff18e, // 	bne         	$t0, $t2, -16	# f0
-
-                      0x24014aec, // 	ldptr.w     	$t0, $s0, 328
-                      0x2986e32c, // 	st.w        	$t0, $s2, 440
-                      0x1400002d, // 	lu12i.w     	$t1, 1
-                      0x0010b463, // 	add.d       	$sp, $sp, $t1
-                      0x28d72061, // 	ld.d        	$ra, $sp, 1480
-                      0x28d70077, // 	ld.d        	$s0, $sp, 1472
-                      0x28d6e078, // 	ld.d        	$s1, $sp, 1464
-                      0x28d6c079, // 	ld.d        	$s2, $sp, 1456
-                      0x02d74063, // 	addi.d      	$sp, $sp, 1488
-                      0x4c000020, // 	ret
+                      // jump to mmap_page + 4096
+                      0x50000000, //  b            0
                       0x00000000, // padding
 
                       // save absolute address here for easy recovery
                       0x000000000, 0x000000000};
 
+                  // the code will be placed at
+                  uint64_t fake_signal_handler =
+                      cur.mmap_page + 8192 + 32 * orig_a0;
+
                   // fill address into assembly
                   // lu12i.w
                   uint64_t abs_hi20 = (sigaction & 0xFFFFFFFF) >> 12;
-                  code[39] |= abs_hi20 << 5;
+                  code[0] |= abs_hi20 << 5;
                   // ori
                   uint64_t abs_lo12 = sigaction & 0xFFF;
-                  code[40] |= abs_lo12 << 10;
+                  code[1] |= abs_lo12 << 10;
                   // lu32i.d
                   uint64_t abs64_lo20 = (sigaction >> 32) & 0xFFFFF;
-                  code[41] |= abs64_lo20 << 5;
+                  code[2] |= abs64_lo20 << 5;
                   // lu52i.d
                   uint64_t abs64_hi12 = sigaction >> 52;
-                  code[42] |= abs64_hi12 << 10;
+                  code[3] |= abs64_hi12 << 10;
+
+                  // jump back to our signal_handler at mmap_page + 4096
+                  uint64_t offset = (-4096 - 32 * orig_a0 - 16) >> 2;
+                  // offs[15:0]
+                  code[4] |= (offset & 0xFFFF) << 10;
+                  // offs[25:16]
+                  code[4] |= (offset >> 16) & 0x3FF;
+                  // for (int i = 0;i < 5;i++) {
+                  //   printf("%08x\n", code[i]);
+                  // }
 
                   // save absolute address
-                  code[76] = sigaction;
-                  code[77] = sigaction >> 32;
+                  code[6] = sigaction;
+                  code[7] = sigaction >> 32;
 
                   // copy code to somewhere in mmap_page
-                  uint64_t fake_signal_handler =
-                      cur.mmap_page + 4096 + 512 * orig_a0;
                   ptrace_write(child_pid, fake_signal_handler, code,
                                sizeof(code));
 
@@ -660,6 +684,15 @@ int main(int argc, char *argv[]) {
         } else if ((status >> 8) == SIGUSR1) {
           debug_printf("[%d] Child got SIGUSR1\n", child_pid);
           inject_signal = SIGUSR1;
+          continue;
+        } else if ((status >> 8) == SIGBUS) {
+          debug_printf("[%d] Child got SIGBUS\n", child_pid);
+          inject_signal = SIGBUS;
+          struct user_regs_struct regs = {0};
+          struct iovec iovec = {.iov_base = &regs, .iov_len = sizeof(regs)};
+          assert(ptrace(PTRACE_GETREGSET, child_pid, NT_PRSTATUS, &iovec) == 0);
+          debug_printf("era=%llx ra=%llx a3=%llx\n", regs.csr_era, regs.regs[1],
+                       regs.regs[7]);
           continue;
         }
       }
