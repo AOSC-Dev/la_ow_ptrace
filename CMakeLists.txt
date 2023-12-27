@@ -3,3 +3,5 @@ project(la_ow_ptrace)
 
 set(CMAKE_CXX_FLAGS "-fpermissive")
 add_executable(la_ow main.cpp common.c)
+
+add_subdirectory(tests)
