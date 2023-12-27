@@ -35,17 +35,23 @@ It intercepts syscall from child process. When it met unimplemented old-world-on
 ## How to run WPS
 
 1. Install libLOL from AOSC OS
-2. Install WPS Office dpkg
+2. Install WPS Office dpkg from WPS official website or from loongnix repo
 3. Run WPS Office with `la_ow`: `./la_ow /opt/kingsoft/wps-office/office6/wps`
 
 ## How to run Lbrowser(Loongson Browser)
 
 1. Install libLOL from AOSC OS
-2. Install Lbrowser dpkg
+2. Install Lbrowser dpkg from loongnix repo
 3. Run Lbrowser with `la_ow`: `./la_ow /opt/apps/lbrowser/lbrowser`
 
 ## How to run VSCodium
 
 1. Install libLOL from AOSC OS
-2. Install VSCodium dpkg fron loongnix.cn
+2. Install VSCodium dpkg from loongnix.cn
 3. Run Lbrowser with `la_ow`: `./la_ow /usr/share/codium/codium`
+
+## How to run Linux QQ
+
+1. Install libLOL from AOSC OS
+2. Install Linux QQ dpkg from im.qq.com
+3. Run Lbrowser with `la_ow`: `./la_ow /opt/QQ/qq`
