@@ -42,7 +42,8 @@ void signal_handler(int sig, siginfo_t *siginfo, void *ucontext) {
   while (sctx->magic != 0) {
     printf("sctx entry: magic=0x%x, size=%d\n", sctx->magic, sctx->size);
     if (sctx->magic == LASX_CTX_MAGIC) {
-      struct lasx_context *ctx = (struct lasx_context *)((uint8_t *)sctx + 8);
+      struct lasx_context *ctx =
+          (struct lasx_context *)((uint8_t *)sctx + sizeof(struct sctx_info));
       for (int i = 0; i < 32; i++)
         printf("lasx_context[%d] = %llx %llx %llx %llx\n", i, ctx->regs[4 * i],
                ctx->regs[4 * i + 1], ctx->regs[4 * i + 2],
@@ -91,9 +92,6 @@ int main() {
   register int s7 asm("s7") = 0x88888888;
   register int s8 asm("s8") = 0x99999999;
 
-  // activate lasx
-  asm volatile("xvldi $xr0, 0");
-
   register double f0 asm("f0") = 0.0;
   register double f1 asm("f1") = 1.0;
   register double f2 asm("f2") = 2.0;
@@ -104,6 +102,13 @@ int main() {
   register double f7 asm("f7") = 7.0;
   register double f8 asm("f8") = 8.0;
   register double f9 asm("f9") = 9.0;
+
+  // manually set
+  asm volatile("xvrepli.d $xr10, 0");
+  asm volatile("xvrepli.d $xr11, 1");
+  asm volatile("xvrepli.d $xr12, 2");
+  asm volatile("xvrepli.d $xr13, 3");
+
   register double f28 asm("f28") = 28.0;
   register double f29 asm("f29") = 29.0;
   register double f30 asm("f30") = 30.0;
