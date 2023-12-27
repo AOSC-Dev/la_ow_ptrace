@@ -36,11 +36,22 @@ void signal_handler(int sig, siginfo_t *siginfo, void *ucontext) {
            uc->uc_mcontext.__gregs[i]);
   printf("ucontext->uc_mcontext.__flags = %d\n", uc->uc_mcontext.__flags);
 
+#if NSIG == 64 + 1
+  // new world
   struct sctx_info *sctx = (struct sctx_info *)uc->uc_mcontext.__extcontext;
   while (sctx->magic != 0) {
     printf("sctx entry: magic=0x%x, size=%d\n", sctx->magic, sctx->size);
     sctx = (struct sctx_info *)((uint8_t *)sctx + sctx->size);
   }
+#else
+  // old world
+  printf("ucontext->uc_mcontext.__fcsr = %d\n", uc->uc_mcontext.__fcsr);
+  printf("ucontext->uc_mcontext.__vcsr = %d\n", uc->uc_mcontext.__vcsr);
+  printf("ucontext->uc_mcontext.__fcc = %lld\n", uc->uc_mcontext.__fcc);
+  for (int i = 0; i < 32; i++)
+    printf("ucontext->uc_mcontext.__fpregs[i].__val64 = %lld\n",
+           uc->uc_mcontext.__fpregs[i].__val64);
+#endif
 }
 
 int main() {
