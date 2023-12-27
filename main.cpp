@@ -238,7 +238,9 @@ int main(int argc, char *argv[]) {
 
             if (cur.revert_pselect6) {
               // revert size to 16
+              debug_printf("[%d] Revert pselect6 size to 16\n", child_pid);
               assert(ptrace(PTRACE_POKEDATA, child_pid, orig_a5 + 8, 16) == 0);
+              cur.revert_pselect6 = false;
             }
 
             // get result
