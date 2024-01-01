@@ -78,12 +78,15 @@ long int ptrace_syscall(int child_pid, uint64_t syscall_addr, uint64_t a7,
   return result;
 }
 
-void ptrace_read(int child_pid, void *dst, uint64_t src, int length) {
+void ptrace_read(int child_pid, void *dst, uint64_t src, int length,
+                 bool allow_fail = false) {
   assert((length % 8) == 0);
   for (int i = 0; i < length; i += 8) {
     errno = 0;
     uint64_t data = ptrace(PTRACE_PEEKDATA, child_pid, src + i, NULL);
-    assert(errno == 0);
+    if (!allow_fail) {
+      assert(errno == 0);
+    }
     memcpy((uint8_t *)dst + i, &data, (length - i > 8) ? 8 : (length - i));
   }
 }
@@ -262,7 +265,9 @@ int main(int argc, char *argv[]) {
                 syscall == __NR_statx || syscall == __NR_readlinkat ||
                 syscall == 79) {
               char buffer[256] = {0};
-              ptrace_read(child_pid, buffer, orig_a1, 128);
+              // set allow_fail to true, because it may access beyond valid
+              // memory region
+              ptrace_read(child_pid, buffer, orig_a1, 128, true);
               debug_printf("[%d] Strace: file path is %s\n", child_pid, buffer);
             }
 
