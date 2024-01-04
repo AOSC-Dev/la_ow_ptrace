@@ -18,7 +18,7 @@ make
 
 You can set environment variable `LA_OW_PTRACE_DEBUG=1` to enable debug logs.
 
-## How to run WPS
+## How to run WPS Office
 
 1. Install libLOL from AOSC OS
 2. Install WPS Office dpkg from WPS official website or from loongnix repo
@@ -34,13 +34,13 @@ You can set environment variable `LA_OW_PTRACE_DEBUG=1` to enable debug logs.
 
 1. Install libLOL from AOSC OS
 2. Install VSCodium dpkg from loongnix.cn
-3. Run Lbrowser with `la_ow`: `./la_ow /usr/share/codium/codium`
+3. Run VSCodium with `la_ow`: `./la_ow /usr/share/codium/codium`
 
 ## How to run Linux QQ
 
 1. Install libLOL from AOSC OS
 2. Install Linux QQ dpkg from im.qq.com
-3. Run Lbrowser with `la_ow`: `./la_ow /opt/QQ/qq`
+3. Run Linux QQ with `la_ow`: `./la_ow /opt/QQ/qq`
 
 ## How does it work
 
